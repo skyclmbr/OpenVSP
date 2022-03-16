@@ -720,6 +720,23 @@ StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650, "FEA Me
     m_MeshTabLayout.AddButton( m_ToCubicToggle, "Demote Surfs to Cubic" );
     m_MeshTabLayout.AddSlider( m_ToCubicTolSlider, "Cubic Tolerance", 10, "%5.4g", 0, true );
 
+    m_MeshTabLayout.AddYGap();
+    m_MeshTabLayout.AddDividerBox("Element Formulation");
+    m_MeshTabLayout.AddYGap();
+
+    m_MeshTabLayout.SetSameLineFlag(true);
+    m_MeshTabLayout.SetFitWidthFlag(false);
+    m_MeshTabLayout.SetButtonWidth(m_MeshTabLayout.GetW() / 2);
+    m_MeshTabLayout.AddButton(m_1stElemToggle, "First-order Elements");
+    m_MeshTabLayout.AddButton(m_2ndElemToggle, "Second-order Elements");
+    m_MeshTabLayout.SetSameLineFlag(false);
+    m_MeshTabLayout.SetFitWidthFlag(true);
+
+    m_ElemToggle.Init(this);
+    m_ElemToggle.AddButton(m_1stElemToggle.GetFlButton());
+    m_ElemToggle.AddButton(m_2ndElemToggle.GetFlButton());
+
+    //=== OUTPUT TAB ===//
     m_OutputTabLayout.SetGroupAndScreen( outputTabGroup, this );
     // TODO: Add more CFD Mesh Export file options?
 
@@ -1579,6 +1596,11 @@ void StructScreen::UpdateFeaMaterialChoice()
     }
 }
 
+void StructScreen::UpdateFeaMeshChoice()
+{
+
+}
+
 void StructScreen::BeamXSecDispGroup( GroupLayout* group )
 {
     if ( m_CurBeamXSecDispGroup == group && group )
@@ -2330,6 +2352,7 @@ bool StructScreen::Update()
         {
             m_ResetDisplayButton.Deactivate();
         }
+
     }
 
     //If size is > 1 then a Structure has been added to Browser, and we activate export buttons

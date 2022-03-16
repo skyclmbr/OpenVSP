@@ -41,6 +41,7 @@ public:
     virtual void UpdateFeaPropertyChoice();
     virtual void UpdateFeaMaterialBrowser();
     virtual void UpdateFeaMaterialChoice();
+    virtual void UpdateFeaMeshChoice();
 
     virtual void UpdateGenPropertyIndex( Choice* property_choice );
     virtual void UpdateGenCapPropertyIndex( Choice* property_choice );
@@ -260,6 +261,9 @@ private:
     ToggleButton m_HalfMeshButton;
     ToggleButton m_ToCubicToggle;
     SliderAdjRangeInput m_ToCubicTolSlider;
+    ToggleButton m_1stElemToggle;
+    ToggleButton m_2ndElemToggle;
+    ToggleRadioGroup m_ElemToggle;
 
     //===== Output Items =====//
     ToggleButton m_StlFile;

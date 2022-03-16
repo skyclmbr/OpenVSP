@@ -141,6 +141,9 @@ public:
         return m_FeaSliceOrientationIndex;
     }
 
+    //==== FeaMesh Management ====//
+    IntParm m_ElemFlag;
+
 protected:
 
     vector < FeaProperty* > m_FeaPropertyVec;
