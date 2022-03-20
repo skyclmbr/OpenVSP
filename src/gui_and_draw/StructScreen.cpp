@@ -796,6 +796,11 @@ StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650, "FEA Me
     m_ElemOrderToggleGroup.AddButton( m_LinearElemToggle.GetFlButton() );
     m_ElemOrderToggleGroup.AddButton( m_QuadraticElemToggle.GetFlButton() );
 
+    vector< int > val_map;
+    val_map.push_back( vsp::FEA_LINEAR );
+    val_map.push_back( vsp::FEA_QUADRATIC );
+    m_ElemOrderToggleGroup.SetValMapVec(val_map );
+
     m_OutputTabLayout.ForceNewLine();
     m_OutputTabLayout.AddYGap();
 
