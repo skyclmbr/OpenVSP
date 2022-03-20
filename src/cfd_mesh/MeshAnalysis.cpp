@@ -248,6 +248,8 @@ void FeaMeshAnalysis::SetDefaults()
         m_Inputs.Add( NameValData( "CADLenUnit", curr_struct->GetStructSettingsPtr()->m_CADLenUnit() ) );
         m_Inputs.Add( NameValData( "CADLabelDelim", curr_struct->GetStructSettingsPtr()->m_CADLabelDelim() ) );
 
+        m_Inputs.Add( NameValData( "ElementOrder", curr_struct->GetStructSettingsPtr()->m_ElemOrderFlag() ) );
+
         // File Outputs
         m_Inputs.Add( NameValData( "STLFileFlag", curr_struct->GetStructSettingsPtr()->GetExportFileFlag( vsp::FEA_STL_FILE_NAME )->Get() ) );
         m_Inputs.Add( NameValData( "STLFileName", curr_struct->GetStructSettingsPtr()->GetExportFileName( vsp::FEA_STL_FILE_NAME ) ) );
@@ -305,6 +307,8 @@ void FeaMeshAnalysis::SetDefaults()
 
         m_Inputs.Add( NameValData( "CADLenUnit", temp_settings.m_CADLenUnit() ) );
         m_Inputs.Add( NameValData( "CADLabelDelim", temp_settings.m_CADLabelDelim() ) );
+
+        m_Inputs.Add( NameValData( "ElementOrder", temp_settings.m_ElemOrderFlag() ) );
 
         // File Outputs
         m_Inputs.Add( NameValData( "STLFileFlag", temp_settings.GetExportFileFlag( vsp::FEA_STL_FILE_NAME )->Get() ) );
@@ -425,6 +429,10 @@ string FeaMeshAnalysis::Execute()
         nvd = m_Inputs.FindPtr( "CADLabelDelim", 0 );
         if( nvd ) curr_struct->GetStructSettingsPtr()->m_CADLabelDelim.Set( nvd->GetInt( 0 ) );
 
+        int elemOrderOrig = curr_struct->GetStructSettingsPtr()->m_ElemOrderFlag();
+        nvd = m_Inputs.FindPtr( "ElementOrder", 0 );
+        if( nvd ) curr_struct->GetStructSettingsPtr()->m_ElemOrderFlag.Set(nvd->GetInt( 0 ) );
+
         // File Outputs
         bool stlFileFlagOrig = curr_struct->GetStructSettingsPtr()->GetExportFileFlag( vsp::FEA_STL_FILE_NAME )->Get();
         nvd = m_Inputs.FindPtr( "STLFileFlag", 0 );
@@ -542,6 +550,8 @@ string FeaMeshAnalysis::Execute()
         //Input DropDowns
         curr_struct->GetStructSettingsPtr()->m_CADLenUnit.Set( lenUnitChoiceOrig );
         curr_struct->GetStructSettingsPtr()->m_CADLabelDelim.Set( labelDelimChoiceOrig );
+
+        curr_struct->GetStructSettingsPtr()->m_ElemOrderFlag.Set( elemOrderOrig );
 
         // File Outputs
         curr_struct->GetStructSettingsPtr()->SetFileExportFlag( vsp::FEA_STL_FILE_NAME, stlFileFlagOrig );
