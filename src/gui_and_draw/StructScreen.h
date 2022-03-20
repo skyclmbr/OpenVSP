@@ -41,7 +41,6 @@ public:
     virtual void UpdateFeaPropertyChoice();
     virtual void UpdateFeaMaterialBrowser();
     virtual void UpdateFeaMaterialChoice();
-    virtual void UpdateFeaMeshChoice();
 
     virtual void UpdateGenPropertyIndex( Choice* property_choice );
     virtual void UpdateGenCapPropertyIndex( Choice* property_choice );

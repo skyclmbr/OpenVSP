@@ -1596,11 +1596,6 @@ void StructScreen::UpdateFeaMaterialChoice()
     }
 }
 
-void StructScreen::UpdateFeaMeshChoice()
-{
-
-}
-
 void StructScreen::BeamXSecDispGroup( GroupLayout* group )
 {
     if ( m_CurBeamXSecDispGroup == group && group )
