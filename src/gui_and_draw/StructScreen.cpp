@@ -724,19 +724,6 @@ StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650, "FEA Me
     m_MeshTabLayout.AddDividerBox("Element Formulation");
     m_MeshTabLayout.AddYGap();
 
-    m_MeshTabLayout.SetSameLineFlag(true);
-    m_MeshTabLayout.SetFitWidthFlag(false);
-    m_MeshTabLayout.SetButtonWidth(m_MeshTabLayout.GetW() / 2);
-    m_MeshTabLayout.AddButton(m_1stElemToggle, "First-order Elements");
-    m_MeshTabLayout.AddButton(m_2ndElemToggle, "Second-order Elements");
-    m_MeshTabLayout.SetSameLineFlag(false);
-    m_MeshTabLayout.SetFitWidthFlag(true);
-
-    m_ElemToggle.Init(this);
-    m_ElemToggle.AddButton(m_1stElemToggle.GetFlButton());
-    m_ElemToggle.AddButton(m_2ndElemToggle.GetFlButton());
-
-    //=== OUTPUT TAB ===//
     m_OutputTabLayout.SetGroupAndScreen( outputTabGroup, this );
     // TODO: Add more CFD Mesh Export file options?
 
@@ -795,6 +782,21 @@ StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650, "FEA Me
     m_OutputTabLayout.AddButton( m_SelectCalcFile, "..." );
     m_OutputTabLayout.ForceNewLine();
 
+    m_OutputTabLayout.AddYGap();
+
+    m_OutputTabLayout.SetSameLineFlag( true );
+    m_OutputTabLayout.SetFitWidthFlag( false );
+    m_OutputTabLayout.SetButtonWidth( m_MeshTabLayout.GetW() / 2 );
+    m_OutputTabLayout.AddButton( m_LinearElemToggle, "First-Order Elements" );
+    m_OutputTabLayout.AddButton( m_QuadraticElemToggle, "Second-Order Elements" );
+    m_OutputTabLayout.SetSameLineFlag( false );
+    m_OutputTabLayout.SetFitWidthFlag( true );
+
+    m_ElemOrderToggleGroup.Init(this );
+    m_ElemOrderToggleGroup.AddButton( m_LinearElemToggle.GetFlButton() );
+    m_ElemOrderToggleGroup.AddButton( m_QuadraticElemToggle.GetFlButton() );
+
+    m_OutputTabLayout.ForceNewLine();
     m_OutputTabLayout.AddYGap();
 
     m_OutputTabLayout.SetFitWidthFlag( true );

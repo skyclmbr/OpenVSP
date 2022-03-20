@@ -260,9 +260,6 @@ private:
     ToggleButton m_HalfMeshButton;
     ToggleButton m_ToCubicToggle;
     SliderAdjRangeInput m_ToCubicTolSlider;
-    ToggleButton m_1stElemToggle;
-    ToggleButton m_2ndElemToggle;
-    ToggleRadioGroup m_ElemToggle;
 
     //===== Output Items =====//
     ToggleButton m_StlFile;
@@ -285,6 +282,10 @@ private:
     StringOutput m_NastOutput;
     StringOutput m_NkeyOutput;
     StringOutput m_CalcOutput;
+
+    ToggleButton m_LinearElemToggle;
+    ToggleButton m_QuadraticElemToggle;
+    ToggleRadioGroup m_ElemOrderToggleGroup;
 
     ToggleButton m_SrfFile;
     ToggleButton m_XYZIntCurves;
