@@ -26,7 +26,7 @@ using namespace vsp;
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650, "FEA Mesh", 155 )
+StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650 + 30, "FEA Mesh", 155 )
 {
     m_FLTK_Window->callback( staticCloseCB, this );
 
