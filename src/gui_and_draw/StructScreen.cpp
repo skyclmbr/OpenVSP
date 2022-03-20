@@ -2093,6 +2093,8 @@ bool StructScreen::Update()
                 FeaMeshMgr.UpdateDisplaySettings();
             }
 
+            m_ElemOrderToggleGroup.Update( curr_struct->GetStructSettingsPtr()->m_ElemOrderFlag.GetID() );
+
             string massname = curr_struct->GetStructSettingsPtr()->GetExportFileName( vsp::FEA_MASS_FILE_NAME );
             m_MassOutput.Update( StringUtil::truncateFileName( massname, 40 ).c_str() );
             string nastranname = curr_struct->GetStructSettingsPtr()->GetExportFileName( vsp::FEA_NASTRAN_FILE_NAME );
