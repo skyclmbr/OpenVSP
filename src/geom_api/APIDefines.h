@@ -281,6 +281,10 @@ enum FEA_CROSS_SECT_TYPE { FEA_XSEC_GENERAL = 0,
                            FEA_XSEC_BOX
                          };
 
+enum FEA_ELEMENT_ORDER { FEA_LINEAR = 1,
+                         FEA_QUADRATIC = 2
+                       };
+
 enum FEA_EXPORT_TYPE { FEA_MASS_FILE_NAME,
                        FEA_NASTRAN_FILE_NAME,
                        FEA_NKEY_FILE_NAME,

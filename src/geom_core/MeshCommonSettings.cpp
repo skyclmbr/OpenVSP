@@ -428,6 +428,8 @@ StructSettings::StructSettings() : MeshCommonSettings()
 
     m_XYZIntCurveFlag.Init( "SRF_XYZIntCurve", "ExportFEA", this, false, 0, 1 );
 
+    m_ElemOrderFlag.Init( "ElementOrder", "ExportFEA", this, vsp::FEA_QUADRATIC, vsp::FEA_LINEAR, vsp::FEA_QUADRATIC );
+
     m_ExportRawFlag.Init( "ExportRawFlag", "ExportFEA", this, false, 0, 1 );
 
     m_CADLenUnit.Init( "CADLenUnit", "ExportFEA", this, vsp::LEN_FT, vsp::LEN_MM, vsp::LEN_YD );

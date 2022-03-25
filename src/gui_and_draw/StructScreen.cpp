@@ -26,7 +26,7 @@ using namespace vsp;
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650, "FEA Mesh", 155 )
+StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650 + 30, "FEA Mesh", 155 )
 {
     m_FLTK_Window->callback( staticCloseCB, this );
 
@@ -720,6 +720,10 @@ StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650, "FEA Me
     m_MeshTabLayout.AddButton( m_ToCubicToggle, "Demote Surfs to Cubic" );
     m_MeshTabLayout.AddSlider( m_ToCubicTolSlider, "Cubic Tolerance", 10, "%5.4g", 0, true );
 
+    m_MeshTabLayout.AddYGap();
+    m_MeshTabLayout.AddDividerBox("Element Formulation");
+    m_MeshTabLayout.AddYGap();
+
     m_OutputTabLayout.SetGroupAndScreen( outputTabGroup, this );
     // TODO: Add more CFD Mesh Export file options?
 
@@ -778,6 +782,26 @@ StructScreen::StructScreen( ScreenMgr* mgr ) : TabScreen( mgr, 430, 650, "FEA Me
     m_OutputTabLayout.AddButton( m_SelectCalcFile, "..." );
     m_OutputTabLayout.ForceNewLine();
 
+    m_OutputTabLayout.AddYGap();
+
+    m_OutputTabLayout.SetSameLineFlag( true );
+    m_OutputTabLayout.SetFitWidthFlag( false );
+    m_OutputTabLayout.SetButtonWidth( m_MeshTabLayout.GetW() / 2 );
+    m_OutputTabLayout.AddButton( m_LinearElemToggle, "First-Order Elements" );
+    m_OutputTabLayout.AddButton( m_QuadraticElemToggle, "Second-Order Elements" );
+    m_OutputTabLayout.SetSameLineFlag( false );
+    m_OutputTabLayout.SetFitWidthFlag( true );
+
+    m_ElemOrderToggleGroup.Init(this );
+    m_ElemOrderToggleGroup.AddButton( m_LinearElemToggle.GetFlButton() );
+    m_ElemOrderToggleGroup.AddButton( m_QuadraticElemToggle.GetFlButton() );
+
+    vector< int > val_map;
+    val_map.push_back( vsp::FEA_LINEAR );
+    val_map.push_back( vsp::FEA_QUADRATIC );
+    m_ElemOrderToggleGroup.SetValMapVec(val_map );
+
+    m_OutputTabLayout.ForceNewLine();
     m_OutputTabLayout.AddYGap();
 
     m_OutputTabLayout.SetFitWidthFlag( true );
@@ -2069,6 +2093,8 @@ bool StructScreen::Update()
                 FeaMeshMgr.UpdateDisplaySettings();
             }
 
+            m_ElemOrderToggleGroup.Update( curr_struct->GetStructSettingsPtr()->m_ElemOrderFlag.GetID() );
+
             string massname = curr_struct->GetStructSettingsPtr()->GetExportFileName( vsp::FEA_MASS_FILE_NAME );
             m_MassOutput.Update( StringUtil::truncateFileName( massname, 40 ).c_str() );
             string nastranname = curr_struct->GetStructSettingsPtr()->GetExportFileName( vsp::FEA_NASTRAN_FILE_NAME );
@@ -2330,6 +2356,7 @@ bool StructScreen::Update()
         {
             m_ResetDisplayButton.Deactivate();
         }
+
     }
 
     //If size is > 1 then a Structure has been added to Browser, and we activate export buttons

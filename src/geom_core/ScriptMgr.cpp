@@ -1057,6 +1057,15 @@ void ScriptMgrSingleton::RegisterEnums( asIScriptEngine* se )
     r = se->RegisterEnumValue( "FEA_CROSS_SECT_TYPE", "FEA_XSEC_BOX", FEA_XSEC_BOX, "/*!< Box XSec type */" );
     assert( r >= 0 );
 
+    doc_struct.comment = "/*! Enum for the various FEA element export orders. */";
+
+    r = se->RegisterEnum( "FEA_ELEMENT_ORDER", doc_struct );
+    assert( r >= 0 );
+    r = se->RegisterEnumValue( "FEA_ELEMENT_ORDER", "FEA_LINEAR", FEA_LINEAR, "/*!< Linear FEA elements */" );
+    assert( r >= 0 );
+    r = se->RegisterEnumValue( "FEA_ELEMENT_ORDER", "FEA_QUADRATIC", FEA_QUADRATIC, "/*!< Quadratic FEA elements */" );
+    assert( r >= 0 );
+
     doc_struct.comment = "/*! Enum for the various FEA Mesh export types. */";
 
     r = se->RegisterEnum( "FEA_EXPORT_TYPE", doc_struct );

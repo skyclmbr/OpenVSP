@@ -283,6 +283,10 @@ private:
     StringOutput m_NkeyOutput;
     StringOutput m_CalcOutput;
 
+    ToggleButton m_LinearElemToggle;
+    ToggleButton m_QuadraticElemToggle;
+    ToggleRadioGroup m_ElemOrderToggleGroup;
+
     ToggleButton m_SrfFile;
     ToggleButton m_XYZIntCurves;
     TriggerButton m_SelectSrfFile;
