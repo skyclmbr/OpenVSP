@@ -3013,7 +3013,7 @@ void FeaMeshMgrSingleton::WriteConnectionCalculix( FILE* fp, FeaConnection* conn
                 {
                     fprintf( fp, "*EQUATION\n" );
                     fprintf( fp, "2\n" );                // Two terms in equation.
-                    fprintf( fp, "%d,%d,%f,%d,%d,%f\n", startnod, i, 1.0, endnod, i, -1.0 ); // LHS of equation = 0
+                    fprintf( fp, "%d,%d,%f,%d,%d,%f\n", endnod, i, 1.0, startnod, i, -1.0 ); // LHS of equation = 0
                 }
             }
             fprintf( fp, "\n" );
@@ -3112,7 +3112,28 @@ void FeaMeshMgrSingleton::WriteAssemblyNASTRAN( FILE *dat_fp, FILE *bdf_header_f
         }
 
         // Write bulk data to temp file
-        fprintf( bdf_header_fp, "BEGIN BULK\n" );
+        fprintf(bdf_header_fp, "$EXECUTIVE CONTROL DECK\n");
+        fprintf(bdf_header_fp, "ID TEMP\n");
+        fprintf(bdf_header_fp, "SOL 1\n");
+        fprintf(bdf_header_fp, "CEND\n");
+        fprintf(bdf_header_fp, "$CASE CONTROL DECK\n");
+        fprintf(bdf_header_fp, "DISPLACEMENT(PRINT,PLOT) = ALL\n");
+        fprintf(bdf_header_fp, "ECHO = UNSORT\n");
+        fprintf(bdf_header_fp, "ELDATA(5,PRINT) = ALL\n");
+        fprintf(bdf_header_fp, "FORCE(PRINT,PLOT) = ALL\n");
+        fprintf(bdf_header_fp, "GPFORCE = ALL\n");
+        fprintf(bdf_header_fp, "MPCFORCES(PRINT,PLOT) = ALL\n");
+        fprintf(bdf_header_fp, "OLOAD(PRINT,PLOT) = ALL\n");
+        fprintf(bdf_header_fp, "SPC = 1\n");
+        fprintf(bdf_header_fp, "SPCFORCES(PRINT,PLOT) = ALL\n");
+        fprintf(bdf_header_fp, "STRESS(PRINT,PLOT) = ALL\n");
+        fprintf(bdf_header_fp, "STRAIN(PRINT,PLOT) = ALL\n");
+        fprintf(bdf_header_fp, "SUBTITLE = TEMP\n");
+        fprintf(bdf_header_fp, "TITLE = TEMP LOAD CASES\n");
+        fprintf(bdf_header_fp, "SUBCASE 1\n");
+        fprintf(bdf_header_fp, "    LABEL = TEMPSUB\n");
+        fprintf(bdf_header_fp, "    LOAD = 1\n");
+        fprintf(bdf_header_fp, "BEGIN BULK\n");
 
         int set_cnt = 1;
 
@@ -3175,7 +3196,7 @@ void FeaMeshMgrSingleton::WriteConnectionNASTRAN( FILE* bdf_fp, FeaConnection* c
             string bcstr = dof.AsNASTRAN();
 
             fprintf( bdf_fp, "$ Connection %s\n", conn->MakeName().c_str() );
-            fprintf( bdf_fp, "RBAR1   ,%8d,%8d,%8d,%s\n", connid, startnod, endnod, bcstr.c_str() );
+            fprintf( bdf_fp, "RBE2    ,%8d,%8d,%s,%8d\n", connid, startnod, bcstr.c_str(), endnod);
             fprintf( bdf_fp, "\n" );
             connid++;
         }
