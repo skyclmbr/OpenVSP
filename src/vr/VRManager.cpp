@@ -606,6 +606,9 @@ bool VRManager::PollEvents()
 
             if ( s->state == XR_SESSION_STATE_READY && !m_impl->sessionBegun )
             {
+                // Recreate frame resources on each new begin cycle to avoid stale state
+                // after headset idle/remount transitions.
+                m_impl->DestroySwapchains();
                 if ( !m_impl->BeginSession() )
                 {
                     m_running = false;
@@ -715,14 +718,30 @@ bool VRManager::RenderStereoDemo()
     uint32_t viewCountOut = 0;
     uint32_t viewCap = 2;
     XrView views[2]{ { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
+    views[0].pose.orientation.w = 1.0f;
+    views[1].pose.orientation.w = 1.0f;
 
     r = xrLocateViews( m_impl->session, &vli, &viewState, viewCap, &viewCountOut, views );
-    if ( XR_FAILED( r ) || viewCountOut != 2 )
+    const XrViewStateFlags needFlags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
+    if ( XR_FAILED( r ) || viewCountOut != 2 || ( viewState.viewStateFlags & needFlags ) != needFlags )
     {
-        PrintXrError( "xrLocateViews", r );
-        XrFrameEndInfo endFail{ XR_TYPE_FRAME_END_INFO };
-        xrEndFrame( m_impl->session, &endFail );
-        return false;
+        if ( XR_FAILED( r ) )
+        {
+            PrintXrError( "xrLocateViews", r );
+        }
+        else
+        {
+            fprintf( stderr, "[VSP_VR] xrLocateViews not valid yet (count=%u flags=0x%llx). Skipping frame.\n",
+                     viewCountOut, static_cast<unsigned long long>( viewState.viewStateFlags ) );
+        }
+
+        XrFrameEndInfo endSkip{ XR_TYPE_FRAME_END_INFO };
+        endSkip.displayTime = frameState.predictedDisplayTime;
+        endSkip.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        endSkip.layerCount = 0;
+        endSkip.layers = nullptr;
+        xrEndFrame( m_impl->session, &endSkip );
+        return true;
     }
 
     XrCompositionLayerProjectionView projViews[2]{ { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW }, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW } };
