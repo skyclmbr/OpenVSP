@@ -1391,6 +1391,40 @@ void main() {
         return drew;
     }
 
+    void DrawFloorGrid( const glm::mat4 &vp )
+    {
+        if ( !zLock )
+        {
+            return;
+        }
+
+        std::vector<float> gridVerts;
+        const float halfX = std::max( 0.4f, playAreaBounds.width * 0.5f );
+        const float halfZ = std::max( 0.4f, playAreaBounds.height * 0.5f );
+        const float radius = std::max( 0.6f, std::min( halfX, halfZ ) );
+        const float y = 0.001f;
+
+        // Axis-aligned line grid in stage space (Y-up).
+        for ( float x = -radius; x <= radius + 1e-4f; x += 0.25f )
+        {
+            gridVerts.insert( gridVerts.end(), { x, y, -radius, x, y, radius } );
+        }
+        for ( float z = -radius; z <= radius + 1e-4f; z += 0.25f )
+        {
+            gridVerts.insert( gridVerts.end(), { -radius, y, z, radius, y, z } );
+        }
+        // Origin marker cross.
+        gridVerts.insert( gridVerts.end(), { -0.08f, y, 0.0f, 0.08f, y, 0.0f } );
+        gridVerts.insert( gridVerts.end(), { 0.0f, y, -0.08f, 0.0f, y, 0.08f } );
+
+        glEnable( GL_BLEND );
+        glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+        glLineWidth( 1.0f );
+        DrawVertexStream( vp, glm::mat4( 1.0f ), gridVerts, std::vector<float>{}, std::vector<float>{},
+                          GL_LINES, glm::vec3( 0.2f, 0.95f, 0.95f ), 0.28f );
+        glDisable( GL_BLEND );
+    }
+
     void DestroyGLResources()
     {
         if ( triVBO )
@@ -1783,8 +1817,10 @@ bool VRManager::RenderStereoDemo()
             glm::scale( glm::mat4( 1.f ), glm::vec3( m_impl->modelScale ) ) *
             glm::translate( glm::mat4( 1.f ), m_impl->modelLocalOffset );
         const glm::mat4 mvp = proj * viewMat * model;
+        const glm::mat4 vp = proj * viewMat;
 
         const bool drewModel = m_impl->DrawVehicleModel( mvp, model );
+        m_impl->DrawFloorGrid( vp );
 
         if ( !drewModel )
         {
