@@ -175,6 +175,7 @@ struct VRManager::Impl
     XrAction squeezeAction = XR_NULL_HANDLE;
     XrAction triggerAction = XR_NULL_HANDLE;
     XrAction thumbClickAction = XR_NULL_HANDLE;
+    XrAction thumbstickAction = XR_NULL_HANDLE;
     XrPath leftHandPath = XR_NULL_PATH;
     XrPath rightHandPath = XR_NULL_PATH;
     XrSpace leftGripSpace = XR_NULL_HANDLE;
@@ -208,6 +209,9 @@ struct VRManager::Impl
     float leftThumbHeldTime = 0.0f;
     bool leftThumbDownPrev = false;
     bool yLockToggledThisPress = false;
+    bool rightThumbDownPrev = false;
+    float rightThumbHeldTime = 0.0f;
+    int viewPresetIndex = 0;
 
     struct EyeSwap
     {
@@ -474,6 +478,19 @@ struct VRManager::Impl
             return false;
         }
 
+        XrActionCreateInfo vci{ XR_TYPE_ACTION_CREATE_INFO };
+        vci.actionType = XR_ACTION_TYPE_VECTOR2F_INPUT;
+        strncpy( vci.actionName, "thumbstick", XR_MAX_ACTION_NAME_SIZE );
+        strncpy( vci.localizedActionName, "Thumbstick", XR_MAX_LOCALIZED_ACTION_NAME_SIZE );
+        vci.countSubactionPaths = 2;
+        vci.subactionPaths = handSubactions;
+        r = xrCreateAction( actionSet, &vci, &thumbstickAction );
+        if ( XR_FAILED( r ) )
+        {
+            PrintXrError( "xrCreateAction(thumbstick)", r );
+            return false;
+        }
+
         XrPath simpleProfile = XR_NULL_PATH;
         XrPath touchProfile = XR_NULL_PATH;
         XrPath leftGrip = XR_NULL_PATH, rightGrip = XR_NULL_PATH;
@@ -482,6 +499,7 @@ struct VRManager::Impl
         XrPath leftSqueezeValue = XR_NULL_PATH, rightSqueezeValue = XR_NULL_PATH;
         XrPath leftTriggerValue = XR_NULL_PATH, rightTriggerValue = XR_NULL_PATH;
         XrPath leftThumbClick = XR_NULL_PATH, rightThumbClick = XR_NULL_PATH;
+        XrPath leftThumbstick = XR_NULL_PATH, rightThumbstick = XR_NULL_PATH;
         xrStringToPath( instance, "/interaction_profiles/khr/simple_controller", &simpleProfile );
         xrStringToPath( instance, "/interaction_profiles/oculus/touch_controller", &touchProfile );
         xrStringToPath( instance, "/user/hand/left/input/grip/pose", &leftGrip );
@@ -496,6 +514,8 @@ struct VRManager::Impl
         xrStringToPath( instance, "/user/hand/right/input/trigger/value", &rightTriggerValue );
         xrStringToPath( instance, "/user/hand/left/input/thumbstick/click", &leftThumbClick );
         xrStringToPath( instance, "/user/hand/right/input/thumbstick/click", &rightThumbClick );
+        xrStringToPath( instance, "/user/hand/left/input/thumbstick", &leftThumbstick );
+        xrStringToPath( instance, "/user/hand/right/input/thumbstick", &rightThumbstick );
 
         XrActionSuggestedBinding simpleBinds[5] = {
             { gripPoseAction, leftGrip },
@@ -510,7 +530,7 @@ struct VRManager::Impl
         simpleSb.suggestedBindings = simpleBinds;
         xrSuggestInteractionProfileBindings( instance, &simpleSb );
 
-        XrActionSuggestedBinding touchBinds[10] = {
+        XrActionSuggestedBinding touchBinds[12] = {
             { gripPoseAction, leftGrip },
             { gripPoseAction, rightGrip },
             { gripPoseAction, leftAim },
@@ -520,11 +540,13 @@ struct VRManager::Impl
             { triggerAction, leftTriggerValue },
             { triggerAction, rightTriggerValue },
             { thumbClickAction, leftThumbClick },
-            { thumbClickAction, rightThumbClick }
+            { thumbClickAction, rightThumbClick },
+            { thumbstickAction, leftThumbstick },
+            { thumbstickAction, rightThumbstick }
         };
         XrInteractionProfileSuggestedBinding touchSb{ XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
         touchSb.interactionProfile = touchProfile;
-        touchSb.countSuggestedBindings = 10;
+        touchSb.countSuggestedBindings = 12;
         touchSb.suggestedBindings = touchBinds;
         xrSuggestInteractionProfileBindings( instance, &touchSb );
 
@@ -571,6 +593,8 @@ struct VRManager::Impl
         leftThumbHeldTime = 0.0f;
         leftThumbDownPrev = false;
         yLockToggledThisPress = false;
+        rightThumbDownPrev = false;
+        rightThumbHeldTime = 0.0f;
     }
 
     void UpdateHandState( int handIdx, XrSpace handSpace, XrTime displayTime )
@@ -656,6 +680,19 @@ struct VRManager::Impl
         xrGetActionStateBoolean( session, &leftThumbInfo, &leftThumbState );
         const bool leftThumbDown = leftThumbState.isActive && leftThumbState.currentState;
 
+        XrActionStateGetInfo rightThumbInfo{ XR_TYPE_ACTION_STATE_GET_INFO };
+        rightThumbInfo.action = thumbClickAction;
+        rightThumbInfo.subactionPath = rightHandPath;
+        XrActionStateBoolean rightThumbState{ XR_TYPE_ACTION_STATE_BOOLEAN };
+        xrGetActionStateBoolean( session, &rightThumbInfo, &rightThumbState );
+        const bool rightThumbDown = rightThumbState.isActive && rightThumbState.currentState;
+
+        XrActionStateGetInfo rightStickInfo{ XR_TYPE_ACTION_STATE_GET_INFO };
+        rightStickInfo.action = thumbstickAction;
+        rightStickInfo.subactionPath = rightHandPath;
+        XrActionStateVector2f rightStick{ XR_TYPE_ACTION_STATE_VECTOR2F };
+        xrGetActionStateVector2f( session, &rightStickInfo, &rightStick );
+
         if ( leftThumbDown )
         {
             leftThumbHeldTime += dt;
@@ -678,6 +715,48 @@ struct VRManager::Impl
             yLockToggledThisPress = false;
         }
         leftThumbDownPrev = leftThumbDown;
+
+        if ( rightStick.isActive )
+        {
+            const float dead = 0.15f;
+            const float stickX = ( std::abs( rightStick.currentState.x ) > dead ) ? rightStick.currentState.x : 0.0f;
+            const float stickY = ( std::abs( rightStick.currentState.y ) > dead ) ? rightStick.currentState.y : 0.0f;
+
+            // Right thumbstick Y: zoom (scale in place).
+            if ( stickY != 0.0f )
+            {
+                const float zoomGain = 1.5f;
+                const float factor = std::exp( stickY * zoomGain * dt );
+                modelScale = std::clamp( modelScale * factor, 0.01f, 50.0f );
+            }
+
+            // Right thumbstick X: yaw around +Z (always active).
+            if ( stickX != 0.0f )
+            {
+                const float yawRate = 1.7f; // rad/s at full deflection
+                const float yaw = stickX * yawRate * dt;
+                const glm::quat yawRot = glm::angleAxis( yaw, glm::vec3( 0.0f, 0.0f, 1.0f ) );
+                modelRotation = glm::normalize( yawRot * modelRotation );
+            }
+        }
+
+        if ( rightThumbDown )
+        {
+            rightThumbHeldTime += dt;
+        }
+        else if ( rightThumbDownPrev )
+        {
+            if ( rightThumbHeldTime < 1.0f )
+            {
+                // Short right click cycles preset views.
+                static const float kPresetYaw[4] = { 0.0f, 1.5707963f, 3.1415926f, 0.7853982f };
+                viewPresetIndex = ( viewPresetIndex + 1 ) % 4;
+                modelRotation = glm::angleAxis( kPresetYaw[viewPresetIndex], glm::vec3( 0.0f, 0.0f, 1.0f ) );
+                fprintf( stderr, "[VSP_VR] View preset %d\n", viewPresetIndex );
+            }
+            rightThumbHeldTime = 0.0f;
+        }
+        rightThumbDownPrev = rightThumbDown;
 
         if ( ( ++inputLogCounter % 180 ) == 0 )
         {
@@ -1327,6 +1406,11 @@ void main() {
         {
             xrDestroyAction( thumbClickAction );
             thumbClickAction = XR_NULL_HANDLE;
+        }
+        if ( thumbstickAction != XR_NULL_HANDLE )
+        {
+            xrDestroyAction( thumbstickAction );
+            thumbstickAction = XR_NULL_HANDLE;
         }
         if ( triggerAction != XR_NULL_HANDLE )
         {
