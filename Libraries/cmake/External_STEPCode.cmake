@@ -21,10 +21,11 @@ ExternalProject_Add( STEPCODE
 	URL ${CMAKE_CURRENT_SOURCE_DIR}/stepcode-28350d91294b.zip
 	DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 	CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
 		-DCMAKE_CXX_FLAGS=${SC_CMAKE_CXX_FLAGS}
 		-DCMAKE_C_FLAGS=${SC_CMAKE_C_FLAGS}
-		-DSC_BUILD_TYPE=Debug
+		-DSC_BUILD_TYPE=${CMAKE_BUILD_TYPE}
 		-DSC_BUILD_SCHEMAS=ap203/ap203.exp
 		-DSC_BUILD_STATIC_LIBS=ON
 		-DSC_BUILD_SHARED_LIBS=${SC_SHARED}
@@ -44,7 +45,7 @@ ENDIF()
 SET( STEPCODE_BINARY_DIR ${BINARY_DIR} )
 
 # SC CMake does not honor -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
-# Consequently, force Debug so it installs in ../sc-install directory
-# instead of /usr/local/lib.
+# Configure SC build type to match the parent build to avoid MSVC runtime
+# mismatches when linking OpenVSP against stepcode libraries.
 #
 # SC's own programs fail to build with -DSC_BUILD_SHARED_LIBS=OFF
