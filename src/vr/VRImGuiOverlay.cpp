@@ -131,8 +131,8 @@ in vec2 vUV;
 out vec4 fragColor;
 uniform sampler2D uTex;
 void main() {
-  // ImGui FBO vs quad UVs: flip both axes so text reads correctly on the stage billboard.
-  vec2 uv = vec2(1.0 - vUV.x, 1.0 - vUV.y);
+  // ImGui FBO is top-down vs GL texture convention; flip V only. U matches quad winding.
+  vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
   fragColor = texture(uTex, uv);
 }
 )GLSL";
