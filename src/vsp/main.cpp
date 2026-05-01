@@ -7,6 +7,11 @@
 //#include "vld.h"
 
 #include <cstdio>
+#include <cstring>
+
+#ifdef VSP_VR_ENABLED
+#include "VRMode.h"
+#endif
 
 #ifdef WIN32
 #include <windows.h>
@@ -200,6 +205,22 @@ void ThreadCheckVersionNumber()
 
 int main( int argc, char** argv )
 {
+#ifdef VSP_VR_ENABLED
+    bool vr_mode = false;
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( argv[i] && strcmp( argv[i], "--vr" ) == 0 )
+        {
+            vr_mode = true;
+            break;
+        }
+    }
+    if ( vr_mode )
+    {
+        return RunVRMode( argc, argv );
+    }
+#endif
+
     // Set up MainThreadID if this is entry point.
     MainThreadIDMgr.getInstance();
 
