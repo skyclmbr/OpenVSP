@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -38,6 +39,7 @@
 
 #include "VSP_Geom_API.h"
 #include "Vec3d.h"
+#include "VRImGuiOverlay.h"
 
 namespace
 {
@@ -228,6 +230,8 @@ struct VRManager::Impl
     };
     EyeSwap eyes[2];
     bool swapchainsCreated = false;
+
+    std::unique_ptr<VRImGuiOverlay> imguiOverlay;
 
     GLuint triVAO = 0;
     GLuint triVBO = 0;
@@ -1090,11 +1094,8 @@ struct VRManager::Impl
 
     bool EnsureTriangleResources()
     {
-        if ( program )
+        if ( !program )
         {
-            return true;
-        }
-
         const char *vsSrc = R"GLSL(
 #version 330 core
 layout(location = 0) in vec3 aPos;
@@ -1158,6 +1159,17 @@ void main() {
         glEnableVertexAttribArray( 2 );
         glVertexAttribPointer( 2, 3, GL_FLOAT, GL_FALSE, sizeof( float ) * 9, reinterpret_cast<void *>( sizeof( float ) * 6 ) );
         glBindVertexArray( 0 );
+        }
+
+        if ( !imguiOverlay )
+        {
+            imguiOverlay = std::make_unique<VRImGuiOverlay>();
+            if ( !imguiOverlay->Init( 640, 480 ) )
+            {
+                fprintf( stderr, "[VSP_VR] ImGui overlay init failed; continuing without UI panel.\n" );
+                imguiOverlay.reset();
+            }
+        }
 
         return true;
     }
@@ -1474,6 +1486,8 @@ void main() {
 
     void DestroyGLResources()
     {
+        imguiOverlay.reset();
+
         if ( triVBO )
         {
             glDeleteBuffers( 1, &triVBO );
@@ -1824,6 +1838,12 @@ bool VRManager::RenderStereoDemo()
 
     m_impl->UpdateInteraction( frameState.predictedDisplayTime );
 
+    if ( m_impl->imguiOverlay && m_impl->imguiOverlay->IsReady() )
+    {
+        m_impl->imguiOverlay->NewFrame( 1.0f / 72.0f );
+        m_impl->imguiOverlay->RenderUiToTexture();
+    }
+
     XrCompositionLayerProjectionView projViews[2]{ { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW }, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW } };
 
     const float nearZ = 0.05f;
@@ -1873,6 +1893,11 @@ bool VRManager::RenderStereoDemo()
 
         const bool drewModel = m_impl->DrawVehicleModel( mvp, model );
         m_impl->DrawFloorGrid( vp );
+
+        if ( m_impl->imguiOverlay && m_impl->imguiOverlay->IsReady() )
+        {
+            m_impl->imguiOverlay->DrawStageBillboard( vp );
+        }
 
         if ( !drewModel )
         {

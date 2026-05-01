@@ -10,8 +10,20 @@ else()
     set( _VSP_SAVED_BUILD_TESTING "${BUILD_TESTING}" )
     set( BUILD_TESTING OFF CACHE BOOL "" FORCE )
 
-    include( FetchContent )
-    FetchContent_Declare(
+include( FetchContent )
+
+FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG        v1.91.0
+        GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties( imgui )
+if ( NOT imgui_POPULATED )
+    FetchContent_Populate( imgui )
+endif()
+
+FetchContent_Declare(
         KhronosOpenXRSDK
         GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
         GIT_TAG        release-1.0.34
@@ -33,9 +45,16 @@ add_library( vsp_vr STATIC
     VRInterfaces.cpp
     VRMode.cpp
     VRManager.cpp
+    VRImGuiOverlay.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
 target_compile_definitions( vsp_vr PUBLIC VSP_VR_ENABLED )
+target_compile_definitions( vsp_vr PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLEW )
 
 target_include_directories( vsp_vr PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} )
 
@@ -44,6 +63,8 @@ target_include_directories( vsp_vr PRIVATE
     ${GLEW_INCLUDE_PATH}
     ${GEOM_API_INCLUDE_DIR}
     ${PROJECT_SOURCE_DIR}/util_api
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
 )
 
 target_link_libraries( vsp_vr
