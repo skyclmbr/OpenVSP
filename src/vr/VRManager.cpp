@@ -597,6 +597,47 @@ struct VRManager::Impl
         rightThumbHeldTime = 0.0f;
     }
 
+    bool TryGetHeadPoseInStage( XrTime displayTime, glm::vec3 &headPosOut ) const
+    {
+        if ( session == XR_NULL_HANDLE || viewSpace == XR_NULL_HANDLE || stageSpace == XR_NULL_HANDLE )
+        {
+            return false;
+        }
+
+        XrSpaceLocation loc{ XR_TYPE_SPACE_LOCATION };
+        const XrResult r = xrLocateSpace( viewSpace, stageSpace, displayTime, &loc );
+        if ( XR_FAILED( r ) )
+        {
+            return false;
+        }
+
+        const XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
+        if ( ( loc.locationFlags & need ) != need )
+        {
+            return false;
+        }
+
+        headPosOut = glm::vec3( loc.pose.position.x, loc.pose.position.y, loc.pose.position.z );
+        return true;
+    }
+
+    void RecalibrateFloorFromHead( XrTime displayTime )
+    {
+        glm::vec3 headPos( 0.0f );
+        if ( !TryGetHeadPoseInStage( displayTime, headPos ) )
+        {
+            fprintf( stderr, "[VSP_VR] Floor recal skipped (head pose unavailable).\n" );
+            return;
+        }
+
+        // In LOCAL fallback, infer floor from current HMD height.
+        constexpr float kAssumedEyeHeightM = 1.65f;
+        const float estimatedFloorY = headPos.y - kAssumedEyeHeightM;
+        modelTranslation.y -= estimatedFloorY;
+        demoAnchorPos.y -= estimatedFloorY;
+        fprintf( stderr, "[VSP_VR] Floor recalibrated (deltaY=%.3f).\n", -estimatedFloorY );
+    }
+
     void UpdateHandState( int handIdx, XrSpace handSpace, XrTime displayTime )
     {
         hands[handIdx].valid = false;
@@ -753,6 +794,11 @@ struct VRManager::Impl
                 viewPresetIndex = ( viewPresetIndex + 1 ) % 4;
                 modelRotation = glm::angleAxis( kPresetYaw[viewPresetIndex], glm::vec3( 0.0f, 1.0f, 0.0f ) );
                 fprintf( stderr, "[VSP_VR] View preset %d\n", viewPresetIndex );
+            }
+            else
+            {
+                // Long right click recalibrates floor estimate.
+                RecalibrateFloorFromHead( displayTime );
             }
             rightThumbHeldTime = 0.0f;
         }
