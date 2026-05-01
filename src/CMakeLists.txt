@@ -27,7 +27,9 @@ IF( VSP_LIBRARY_PATH )
 ENDIF( VSP_LIBRARY_PATH )
 
 IF(WIN32)
-    ADD_DEFINITIONS(/D _CRT_SECURE_NO_WARNINGS /D "NOMINMAX" /MP )
+    # /MP must not go through ADD_DEFINITIONS — it breaks MSVC rc.exe in nested projects (e.g. OpenXR loader).
+    ADD_DEFINITIONS(/D _CRT_SECURE_NO_WARNINGS /D "NOMINMAX" )
+    add_compile_options( $<$<COMPILE_LANGUAGE:CXX>:/MP> $<$<COMPILE_LANGUAGE:C>:/MP> )
 ENDIF(WIN32)
 
 IF(WIN32)

@@ -5,15 +5,6 @@
 
 #include "VRInterfaces.h"
 
-VRManager &VRManager::GetInstance()
-{
-    static VRManager inst;
-    return inst;
-}
-
-void VRManager::Init() {}
-void VRManager::Shutdown() {}
-
 VRRenderer &VRRenderer::GetInstance()
 {
     static VRRenderer inst;
