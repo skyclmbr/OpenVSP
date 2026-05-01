@@ -176,6 +176,7 @@ struct VRManager::Impl
     XrAction triggerAction = XR_NULL_HANDLE;
     XrAction thumbClickAction = XR_NULL_HANDLE;
     XrAction thumbstickAction = XR_NULL_HANDLE;
+    XrAction yButtonAction = XR_NULL_HANDLE;
     XrPath leftHandPath = XR_NULL_PATH;
     XrPath rightHandPath = XR_NULL_PATH;
     XrSpace leftGripSpace = XR_NULL_HANDLE;
@@ -212,6 +213,9 @@ struct VRManager::Impl
     bool rightThumbDownPrev = false;
     float rightThumbHeldTime = 0.0f;
     int viewPresetIndex = 0;
+    bool yButtonDownPrev = false;
+    float yButtonHeldTime = 0.0f;
+    bool yRecalTriggeredThisPress = false;
 
     struct EyeSwap
     {
@@ -491,6 +495,19 @@ struct VRManager::Impl
             return false;
         }
 
+        XrActionCreateInfo yci{ XR_TYPE_ACTION_CREATE_INFO };
+        yci.actionType = XR_ACTION_TYPE_BOOLEAN_INPUT;
+        strncpy( yci.actionName, "y_button", XR_MAX_ACTION_NAME_SIZE );
+        strncpy( yci.localizedActionName, "Y Button", XR_MAX_LOCALIZED_ACTION_NAME_SIZE );
+        yci.countSubactionPaths = 1;
+        yci.subactionPaths = &leftHandPath;
+        r = xrCreateAction( actionSet, &yci, &yButtonAction );
+        if ( XR_FAILED( r ) )
+        {
+            PrintXrError( "xrCreateAction(y_button)", r );
+            return false;
+        }
+
         XrPath simpleProfile = XR_NULL_PATH;
         XrPath touchProfile = XR_NULL_PATH;
         XrPath leftGrip = XR_NULL_PATH, rightGrip = XR_NULL_PATH;
@@ -500,6 +517,7 @@ struct VRManager::Impl
         XrPath leftTriggerValue = XR_NULL_PATH, rightTriggerValue = XR_NULL_PATH;
         XrPath leftThumbClick = XR_NULL_PATH, rightThumbClick = XR_NULL_PATH;
         XrPath leftThumbstick = XR_NULL_PATH, rightThumbstick = XR_NULL_PATH;
+        XrPath leftYClick = XR_NULL_PATH;
         xrStringToPath( instance, "/interaction_profiles/khr/simple_controller", &simpleProfile );
         xrStringToPath( instance, "/interaction_profiles/oculus/touch_controller", &touchProfile );
         xrStringToPath( instance, "/user/hand/left/input/grip/pose", &leftGrip );
@@ -516,6 +534,7 @@ struct VRManager::Impl
         xrStringToPath( instance, "/user/hand/right/input/thumbstick/click", &rightThumbClick );
         xrStringToPath( instance, "/user/hand/left/input/thumbstick", &leftThumbstick );
         xrStringToPath( instance, "/user/hand/right/input/thumbstick", &rightThumbstick );
+        xrStringToPath( instance, "/user/hand/left/input/y/click", &leftYClick );
 
         XrActionSuggestedBinding simpleBinds[5] = {
             { gripPoseAction, leftGrip },
@@ -530,7 +549,7 @@ struct VRManager::Impl
         simpleSb.suggestedBindings = simpleBinds;
         xrSuggestInteractionProfileBindings( instance, &simpleSb );
 
-        XrActionSuggestedBinding touchBinds[12] = {
+        XrActionSuggestedBinding touchBinds[13] = {
             { gripPoseAction, leftGrip },
             { gripPoseAction, rightGrip },
             { gripPoseAction, leftAim },
@@ -542,11 +561,12 @@ struct VRManager::Impl
             { thumbClickAction, leftThumbClick },
             { thumbClickAction, rightThumbClick },
             { thumbstickAction, leftThumbstick },
-            { thumbstickAction, rightThumbstick }
+            { thumbstickAction, rightThumbstick },
+            { yButtonAction, leftYClick }
         };
         XrInteractionProfileSuggestedBinding touchSb{ XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
         touchSb.interactionProfile = touchProfile;
-        touchSb.countSuggestedBindings = 12;
+        touchSb.countSuggestedBindings = 13;
         touchSb.suggestedBindings = touchBinds;
         xrSuggestInteractionProfileBindings( instance, &touchSb );
 
@@ -595,6 +615,9 @@ struct VRManager::Impl
         zLockToggledThisPress = false;
         rightThumbDownPrev = false;
         rightThumbHeldTime = 0.0f;
+        yButtonDownPrev = false;
+        yButtonHeldTime = 0.0f;
+        yRecalTriggeredThisPress = false;
     }
 
     bool TryGetHeadPoseInStage( XrTime displayTime, glm::vec3 &headPosOut ) const
@@ -734,6 +757,13 @@ struct VRManager::Impl
         XrActionStateVector2f rightStick{ XR_TYPE_ACTION_STATE_VECTOR2F };
         xrGetActionStateVector2f( session, &rightStickInfo, &rightStick );
 
+        XrActionStateGetInfo yButtonInfo{ XR_TYPE_ACTION_STATE_GET_INFO };
+        yButtonInfo.action = yButtonAction;
+        yButtonInfo.subactionPath = leftHandPath;
+        XrActionStateBoolean yButtonState{ XR_TYPE_ACTION_STATE_BOOLEAN };
+        xrGetActionStateBoolean( session, &yButtonInfo, &yButtonState );
+        const bool yButtonDown = yButtonState.isActive && yButtonState.currentState;
+
         if ( leftThumbDown )
         {
             leftThumbHeldTime += dt;
@@ -803,6 +833,23 @@ struct VRManager::Impl
             rightThumbHeldTime = 0.0f;
         }
         rightThumbDownPrev = rightThumbDown;
+
+        if ( yButtonDown )
+        {
+            yButtonHeldTime += dt;
+            if ( yButtonHeldTime >= 2.0f && !yRecalTriggeredThisPress )
+            {
+                RecalibrateFloorFromHead( displayTime );
+                yRecalTriggeredThisPress = true;
+                fprintf( stderr, "[VSP_VR] Y long-press floor recalibration.\n" );
+            }
+        }
+        else if ( yButtonDownPrev )
+        {
+            yButtonHeldTime = 0.0f;
+            yRecalTriggeredThisPress = false;
+        }
+        yButtonDownPrev = yButtonDown;
 
         if ( ( ++inputLogCounter % 180 ) == 0 )
         {
@@ -1491,6 +1538,11 @@ void main() {
         {
             xrDestroyAction( thumbstickAction );
             thumbstickAction = XR_NULL_HANDLE;
+        }
+        if ( yButtonAction != XR_NULL_HANDLE )
+        {
+            xrDestroyAction( yButtonAction );
+            yButtonAction = XR_NULL_HANDLE;
         }
         if ( triggerAction != XR_NULL_HANDLE )
         {
