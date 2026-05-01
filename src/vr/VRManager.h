@@ -16,8 +16,6 @@
 #include <windows.h>
 #endif
 
-#include <cstdint>
-
 // Phase 1: OpenXR session + stereo swapchains; demo triangle per eye (Windows OpenGL).
 
 class VRManager
@@ -47,12 +45,6 @@ public:
     /// Phase 1: render one stereo frame (colored triangle) into swapchains.
     bool RenderStereoDemo();
 
-    /// Last predicted display time (nanoseconds), valid after a successful RenderStereoDemo begin.
-    int64_t GetLastPredictedDisplayTime() const
-    {
-        return m_lastPredictedDisplayTime;
-    }
-
 private:
     VRManager() = default;
     ~VRManager();
@@ -64,7 +56,6 @@ private:
     Impl *m_impl = nullptr;
 
     bool m_running = false;
-    int64_t m_lastPredictedDisplayTime = 0;
 };
 
 #endif
