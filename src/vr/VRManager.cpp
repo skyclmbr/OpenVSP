@@ -61,6 +61,23 @@ static bool HasExtension( const std::vector<XrExtensionProperties> &exts, const 
     return false;
 }
 
+static const char *SessionStateName( XrSessionState s )
+{
+    switch ( s )
+    {
+    case XR_SESSION_STATE_UNKNOWN: return "UNKNOWN";
+    case XR_SESSION_STATE_IDLE: return "IDLE";
+    case XR_SESSION_STATE_READY: return "READY";
+    case XR_SESSION_STATE_SYNCHRONIZED: return "SYNCHRONIZED";
+    case XR_SESSION_STATE_VISIBLE: return "VISIBLE";
+    case XR_SESSION_STATE_FOCUSED: return "FOCUSED";
+    case XR_SESSION_STATE_STOPPING: return "STOPPING";
+    case XR_SESSION_STATE_LOSS_PENDING: return "LOSS_PENDING";
+    case XR_SESSION_STATE_EXITING: return "EXITING";
+    default: return "OTHER";
+    }
+}
+
 static glm::mat4 XrPoseToMat4( const XrPosef &pose )
 {
     const glm::quat q( pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z );
@@ -504,6 +521,7 @@ bool VRManager::Init( HWND hwnd, HDC hdc, HGLRC glrc )
 {
     Shutdown();
 
+    fprintf( stderr, "[VSP_VR] Init: creating OpenXR instance...\n" );
     m_impl = new Impl();
     if ( !m_impl->CreateInstance() )
     {
@@ -512,6 +530,7 @@ bool VRManager::Init( HWND hwnd, HDC hdc, HGLRC glrc )
         m_running = false;
         return false;
     }
+    fprintf( stderr, "[VSP_VR] Init: selecting OpenXR system...\n" );
     if ( !m_impl->CreateSystem() )
     {
         m_impl->DestroyInstance();
@@ -520,6 +539,7 @@ bool VRManager::Init( HWND hwnd, HDC hdc, HGLRC glrc )
         m_running = false;
         return false;
     }
+    fprintf( stderr, "[VSP_VR] Init: creating OpenXR session...\n" );
     if ( !m_impl->CreateSession( hwnd, hdc, glrc ) )
     {
         m_impl->DestroyInstance();
@@ -528,17 +548,9 @@ bool VRManager::Init( HWND hwnd, HDC hdc, HGLRC glrc )
         m_running = false;
         return false;
     }
-    if ( !m_impl->BeginSession() )
-    {
-        m_impl->DestroyXrSession();
-        m_impl->DestroyInstance();
-        delete m_impl;
-        m_impl = nullptr;
-        m_running = false;
-        return false;
-    }
 
     m_running = true;
+    fprintf( stderr, "[VSP_VR] Init complete. Waiting for session state READY...\n" );
     return true;
 }
 
@@ -583,13 +595,35 @@ bool VRManager::PollEvents()
         switch ( ev.type )
         {
         case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
+            fprintf( stderr, "[VSP_VR] OpenXR instance loss pending.\n" );
             m_running = false;
             break;
         case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
         {
             const auto *s = reinterpret_cast<const XrEventDataSessionStateChanged *>( &ev );
             m_impl->sessionState = s->state;
-            if ( s->state == XR_SESSION_STATE_STOPPING || s->state == XR_SESSION_STATE_EXITING )
+            fprintf( stderr, "[VSP_VR] Session state -> %s\n", SessionStateName( s->state ) );
+
+            if ( s->state == XR_SESSION_STATE_READY && !m_impl->sessionBegun )
+            {
+                if ( !m_impl->BeginSession() )
+                {
+                    m_running = false;
+                    return false;
+                }
+                fprintf( stderr, "[VSP_VR] xrBeginSession succeeded.\n" );
+            }
+
+            if ( s->state == XR_SESSION_STATE_STOPPING )
+            {
+                if ( m_impl->sessionBegun )
+                {
+                    xrEndSession( m_impl->session );
+                    m_impl->sessionBegun = false;
+                    fprintf( stderr, "[VSP_VR] xrEndSession done (STOPPING).\n" );
+                }
+            }
+            else if ( s->state == XR_SESSION_STATE_EXITING || s->state == XR_SESSION_STATE_LOSS_PENDING )
             {
                 m_running = false;
             }
@@ -610,6 +644,7 @@ bool VRManager::IsSessionRunning() const
     }
     switch ( m_impl->sessionState )
     {
+    case XR_SESSION_STATE_READY:
     case XR_SESSION_STATE_SYNCHRONIZED:
     case XR_SESSION_STATE_VISIBLE:
     case XR_SESSION_STATE_FOCUSED:
@@ -721,12 +756,15 @@ bool VRManager::RenderStereoDemo()
 
         glBindFramebuffer( GL_FRAMEBUFFER, m_impl->eyes[eye].fbos[imgIndex] );
         glViewport( 0, 0, m_impl->eyes[eye].w, m_impl->eyes[eye].h );
-        glClearColor( 0.05f, 0.05f, 0.1f, 1.f );
+        glDisable( GL_DEPTH_TEST );
+        glClearColor( 0.03f, 0.03f, 0.06f, 1.f );
         glClear( GL_COLOR_BUFFER_BIT );
 
         const glm::mat4 viewMat = glm::inverse( XrPoseToMat4( views[eye].pose ) );
         const glm::mat4 proj = ProjectionFromFov( views[eye].fov, nearZ, farZ );
-        const glm::mat4 model = glm::translate( glm::mat4( 1.f ), glm::vec3( 0.f, 1.5f, -1.0f ) );
+        const glm::mat4 model =
+            glm::translate( glm::mat4( 1.f ), glm::vec3( 0.f, 1.35f, -2.5f ) ) *
+            glm::scale( glm::mat4( 1.f ), glm::vec3( 0.55f ) );
         const glm::mat4 mvp = proj * viewMat * model;
 
         glUseProgram( m_impl->program );
@@ -736,7 +774,26 @@ bool VRManager::RenderStereoDemo()
         const float cb = 0.3f;
         glUniform3f( m_impl->uColor, cr, cg, cb );
         glBindVertexArray( m_impl->triVAO );
+        const float triVerts[] = {
+            0.0f, 0.45f, 0.0f,
+            -0.4f, -0.35f, 0.0f,
+            0.4f, -0.35f, 0.0f
+        };
+        glBindBuffer( GL_ARRAY_BUFFER, m_impl->triVBO );
+        glBufferData( GL_ARRAY_BUFFER, sizeof( triVerts ), triVerts, GL_STREAM_DRAW );
         glDrawArrays( GL_TRIANGLES, 0, 3 );
+
+        // Draw simple XYZ reference lines at the same anchor point.
+        const float axisVerts[] = {
+            0.0f, 0.0f, 0.0f,   0.8f, 0.0f, 0.0f, // +X
+            0.0f, 0.0f, 0.0f,   0.0f, 0.8f, 0.0f, // +Y
+            0.0f, 0.0f, 0.0f,   0.0f, 0.0f, -0.8f // -Z (forward)
+        };
+        glBufferData( GL_ARRAY_BUFFER, sizeof( axisVerts ), axisVerts, GL_STREAM_DRAW );
+        glUniformMatrix4fv( m_impl->uMVP, 1, GL_FALSE, glm::value_ptr( mvp ) );
+        glUniform3f( m_impl->uColor, 1.0f, 1.0f, 1.0f );
+        glDrawArrays( GL_LINES, 0, 6 );
+
         glBindVertexArray( 0 );
         glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 
