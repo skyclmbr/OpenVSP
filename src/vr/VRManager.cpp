@@ -208,7 +208,7 @@ struct VRManager::Impl
     XrTime lastInteractionTime = 0;
     float leftThumbHeldTime = 0.0f;
     bool leftThumbDownPrev = false;
-    bool yLockToggledThisPress = false;
+    bool zLockToggledThisPress = false;
     bool rightThumbDownPrev = false;
     float rightThumbHeldTime = 0.0f;
     int viewPresetIndex = 0;
@@ -592,7 +592,7 @@ struct VRManager::Impl
         lastInteractionTime = 0;
         leftThumbHeldTime = 0.0f;
         leftThumbDownPrev = false;
-        yLockToggledThisPress = false;
+        zLockToggledThisPress = false;
         rightThumbDownPrev = false;
         rightThumbHeldTime = 0.0f;
     }
@@ -737,23 +737,23 @@ struct VRManager::Impl
         if ( leftThumbDown )
         {
             leftThumbHeldTime += dt;
-            if ( leftThumbHeldTime >= 1.0f && !yLockToggledThisPress )
+            if ( leftThumbHeldTime >= 1.0f && !zLockToggledThisPress )
             {
                 zLock = !zLock;
-                yLockToggledThisPress = true;
+                zLockToggledThisPress = true;
                 fprintf( stderr, "[VSP_VR] Z-lock %s\n", zLock ? "ON" : "OFF" );
             }
         }
         else if ( leftThumbDownPrev )
         {
-            if ( !yLockToggledThisPress && leftThumbHeldTime < 1.0f )
+            if ( !zLockToggledThisPress && leftThumbHeldTime < 1.0f )
             {
                 // Short press: reset view to room-fitted baseline.
                 PlaceDemoInRoom();
                 fprintf( stderr, "[VSP_VR] Reset view.\n" );
             }
             leftThumbHeldTime = 0.0f;
-            yLockToggledThisPress = false;
+            zLockToggledThisPress = false;
         }
         leftThumbDownPrev = leftThumbDown;
 
