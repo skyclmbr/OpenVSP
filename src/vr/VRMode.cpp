@@ -7,7 +7,11 @@
 
 #include "VRManager.h"
 
+#include <cctype>
 #include <cstdio>
+#include <string>
+
+#include "VSP_Geom_API.h"
 
 #ifdef _WIN32
 
@@ -24,6 +28,41 @@ namespace
 {
 
 static const wchar_t kWndClass[] = L"OpenVSP_VR_HiddenGL";
+
+static bool HasVsp3Suffix( const std::string &path )
+{
+    if ( path.size() < 5 )
+    {
+        return false;
+    }
+    std::string suffix = path.substr( path.size() - 5 );
+    for ( char &c : suffix )
+    {
+        c = static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) );
+    }
+    return suffix == ".vsp3";
+}
+
+static bool LoadVsp3FromArgs( int argc, char **argv )
+{
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( !argv[i] || argv[i][0] == '-' )
+        {
+            continue;
+        }
+        std::string candidate = argv[i];
+        if ( !HasVsp3Suffix( candidate ) )
+        {
+            continue;
+        }
+
+        fprintf( stderr, "[VSP_VR] Loading model: %s\n", candidate.c_str() );
+        vsp::ReadVSPFile( candidate );
+        return true;
+    }
+    return true;
+}
 
 LRESULT CALLBACK VRHiddenWndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
 {
@@ -173,9 +212,6 @@ static void DestroyGlContext( HWND hwnd, HDC hdc, HGLRC rc )
 
 int RunVRMode( int argc, char **argv )
 {
-    ( void )argc;
-    ( void )argv;
-
 #ifdef _WIN32
 
     HWND hwnd = nullptr;
@@ -184,6 +220,12 @@ int RunVRMode( int argc, char **argv )
 
     if ( !CreateHiddenGl33Context( hwnd, hdc, glrc ) )
     {
+        return 1;
+    }
+
+    if ( !LoadVsp3FromArgs( argc, argv ) )
+    {
+        DestroyGlContext( hwnd, hdc, glrc );
         return 1;
     }
 
