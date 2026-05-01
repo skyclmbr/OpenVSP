@@ -5,6 +5,7 @@
 
 #include "VRManager.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -33,6 +34,9 @@
 #define XR_USE_GRAPHICS_API_OPENGL
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+
+#include "VSP_Geom_API.h"
+#include "Vec3d.h"
 
 namespace
 {
@@ -147,6 +151,15 @@ struct VRManager::Impl
     bool sessionBegun = false;
     bool demoAnchorValid = false;
     glm::vec3 demoAnchorPos = glm::vec3( 0.f, 1.35f, -2.5f );
+    float demoScale = 0.55f;
+    bool boundsUsedFallback = false;
+    XrExtent2Df playAreaBounds{ 2.0f, 2.0f };
+    bool cachedModelValid = false;
+    std::vector<float> cachedModelVerts;
+    bool cachedModelBoundsValid = false;
+    glm::vec3 cachedModelMin = glm::vec3( 0.0f );
+    glm::vec3 cachedModelMax = glm::vec3( 0.0f );
+    glm::vec3 modelLocalOffset = glm::vec3( 0.0f );
 
     struct EyeSwap
     {
@@ -243,15 +256,19 @@ struct VRManager::Impl
         }
 
         XrReferenceSpaceCreateInfo world{ XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
-        // Virtual Desktop appears to produce unstable behavior with STAGE in this prototype.
-        // Force LOCAL for now to isolate world-lock stability issues.
-        world.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+        world.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
         world.poseInReferenceSpace.orientation.w = 1.f;
         r = xrCreateReferenceSpace( session, &world, &stageSpace );
         if ( XR_FAILED( r ) )
         {
-            PrintXrError( "xrCreateReferenceSpace(LOCAL)", r );
-            return false;
+            fprintf( stderr, "[VSP_VR] STAGE space unavailable, falling back to LOCAL.\n" );
+            world.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+            r = xrCreateReferenceSpace( session, &world, &stageSpace );
+            if ( XR_FAILED( r ) )
+            {
+                PrintXrError( "xrCreateReferenceSpace(LOCAL)", r );
+                return false;
+            }
         }
 
         XrReferenceSpaceCreateInfo view{ XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
@@ -280,7 +297,57 @@ struct VRManager::Impl
         }
         sessionBegun = true;
         demoAnchorValid = false;
+        cachedModelValid = false;
+        cachedModelVerts.clear();
         return true;
+    }
+
+    bool QueryPlayAreaBounds()
+    {
+        XrExtent2Df bounds{};
+        XrResult r = xrGetReferenceSpaceBoundsRect( session, XR_REFERENCE_SPACE_TYPE_STAGE, &bounds );
+        if ( XR_SUCCEEDED( r ) && bounds.width > 0.01f && bounds.height > 0.01f )
+        {
+            playAreaBounds = bounds;
+            boundsUsedFallback = false;
+            fprintf( stderr, "[VSP_VR] Room bounds: %.2fm x %.2fm (STAGE)\n", bounds.width, bounds.height );
+            return true;
+        }
+
+        // Common when no room-scale boundary is configured.
+        playAreaBounds.width = 2.0f;
+        playAreaBounds.height = 2.0f;
+        boundsUsedFallback = true;
+        fprintf( stderr, "[VSP_VR] Room bounds unavailable; using fallback 2.0m x 2.0m.\n" );
+        return false;
+    }
+
+    void PlaceDemoInRoom()
+    {
+        // Fit inside ~60% of the shorter play-area side.
+        const float fitSpan = std::min( playAreaBounds.width, playAreaBounds.height ) * 0.6f;
+        float modelSpan = 0.8f;
+        modelLocalOffset = glm::vec3( 0.0f );
+
+        if ( cachedModelBoundsValid )
+        {
+            const glm::vec3 ext = cachedModelMax - cachedModelMin;
+            modelSpan = std::max( 0.2f, std::max( ext.x, ext.z ) ); // floor footprint in XZ
+
+            // Center laterally and shift bottom to local Y=0 so full model sits above floor.
+            modelLocalOffset.x = -0.5f * ( cachedModelMin.x + cachedModelMax.x );
+            modelLocalOffset.z = -0.5f * ( cachedModelMin.z + cachedModelMax.z );
+            modelLocalOffset.y = -cachedModelMin.y;
+        }
+
+        demoScale = std::max( 0.05f, fitSpan / modelSpan );
+
+        // Keep object in front of the user; lift ~3 ft for easier debugging views.
+        demoAnchorPos = glm::vec3( 0.0f, 0.94f, -1.2f );
+        demoAnchorValid = true;
+        fprintf( stderr, "[VSP_VR] Placed demo: scale=%.3f at (%.2f, %.2f, %.2f)%s\n",
+                 demoScale, demoAnchorPos.x, demoAnchorPos.y, demoAnchorPos.z,
+                 boundsUsedFallback ? " [fallback bounds]" : "" );
     }
 
     void DestroySwapchains()
@@ -439,21 +506,129 @@ void main() {
         uMVP = glGetUniformLocation( program, "uMVP" );
         uColor = glGetUniformLocation( program, "uColor" );
 
-        const float verts[] = {
-            0.0f, 0.3f, -0.8f,
-            -0.25f, -0.2f, -0.8f,
-            0.25f, -0.2f, -0.8f
-        };
-
         glGenVertexArrays( 1, &triVAO );
         glGenBuffers( 1, &triVBO );
         glBindVertexArray( triVAO );
         glBindBuffer( GL_ARRAY_BUFFER, triVBO );
-        glBufferData( GL_ARRAY_BUFFER, sizeof( verts ), verts, GL_STATIC_DRAW );
+        glBufferData( GL_ARRAY_BUFFER, 0, nullptr, GL_STREAM_DRAW );
         glEnableVertexAttribArray( 0 );
         glVertexAttribPointer( 0, 3, GL_FLOAT, GL_FALSE, sizeof( float ) * 3, nullptr );
         glBindVertexArray( 0 );
 
+        return true;
+    }
+
+    void DrawVertexStream( const glm::mat4 &mvp, const std::vector<float> &verts, GLenum prim, const glm::vec3 &color )
+    {
+        if ( verts.empty() )
+        {
+            return;
+        }
+        glUseProgram( program );
+        glUniformMatrix4fv( uMVP, 1, GL_FALSE, glm::value_ptr( mvp ) );
+        glUniform3f( uColor, color.r, color.g, color.b );
+        glBindVertexArray( triVAO );
+        glBindBuffer( GL_ARRAY_BUFFER, triVBO );
+        glBufferData( GL_ARRAY_BUFFER, static_cast<GLsizeiptr>( sizeof( float ) * verts.size() ), verts.data(), GL_STREAM_DRAW );
+        glDrawArrays( prim, 0, static_cast<GLsizei>( verts.size() / 3 ) );
+    }
+
+    static void AppendPoint( std::vector<float> &dst, const vec3d &p )
+    {
+        dst.push_back( static_cast<float>( p.x() ) );
+        dst.push_back( static_cast<float>( p.y() ) );
+        dst.push_back( static_cast<float>( p.z() ) );
+    }
+
+    static glm::vec3 ConvertVspToVrModel( const vec3d &p )
+    {
+        // User preference: treat OpenVSP +Z as up in VR.
+        // This is a -90deg rotation around +X: (x, y, z) -> (x, z, -y).
+        return glm::vec3( static_cast<float>( p.x() ),
+                          static_cast<float>( p.z() ),
+                          static_cast<float>( -p.y() ) );
+    }
+
+    bool BuildSampledModelMesh()
+    {
+        cachedModelVerts.clear();
+        cachedModelBoundsValid = false;
+        std::vector<std::string> geoms = vsp::FindGeoms();
+        for ( const std::string &gid : geoms )
+        {
+            // Use total surfaces so planar/axial symmetry copies are included.
+            const int numSurf = std::max( 0, vsp::GetTotalNumSurfs( gid ) );
+            for ( int s = 0; s < numSurf; ++s )
+            {
+                std::vector<double> utess;
+                std::vector<double> wtess;
+                vsp::GetUWTess01( gid, s, utess, wtess );
+                if ( utess.size() < 2 || wtess.size() < 2 )
+                {
+                    continue;
+                }
+
+                for ( size_t i = 0; i + 1 < utess.size(); ++i )
+                {
+                    for ( size_t j = 0; j + 1 < wtess.size(); ++j )
+                    {
+                        const vec3d p00 = vsp::CompPnt01( gid, s, utess[i], wtess[j] );
+                        const vec3d p10 = vsp::CompPnt01( gid, s, utess[i + 1], wtess[j] );
+                        const vec3d p01 = vsp::CompPnt01( gid, s, utess[i], wtess[j + 1] );
+                        const vec3d p11 = vsp::CompPnt01( gid, s, utess[i + 1], wtess[j + 1] );
+                        const glm::vec3 v00 = ConvertVspToVrModel( p00 );
+                        const glm::vec3 v10 = ConvertVspToVrModel( p10 );
+                        const glm::vec3 v01 = ConvertVspToVrModel( p01 );
+                        const glm::vec3 v11 = ConvertVspToVrModel( p11 );
+
+                        auto append_glm = [this]( const glm::vec3 &p )
+                        {
+                            cachedModelVerts.push_back( p.x );
+                            cachedModelVerts.push_back( p.y );
+                            cachedModelVerts.push_back( p.z );
+                            if ( !cachedModelBoundsValid )
+                            {
+                                cachedModelMin = cachedModelMax = p;
+                                cachedModelBoundsValid = true;
+                            }
+                            else
+                            {
+                                cachedModelMin = glm::min( cachedModelMin, p );
+                                cachedModelMax = glm::max( cachedModelMax, p );
+                            }
+                        };
+
+                        append_glm( v00 );
+                        append_glm( v10 );
+                        append_glm( v11 );
+
+                        append_glm( v00 );
+                        append_glm( v11 );
+                        append_glm( v01 );
+                    }
+                }
+            }
+        }
+        cachedModelValid = !cachedModelVerts.empty();
+        if ( !cachedModelValid )
+        {
+            fprintf( stderr, "[VSP_VR] No geom mesh sampled from OpenVSP scene.\n" );
+        }
+        return cachedModelValid;
+    }
+
+    bool DrawVehicleModel( const glm::mat4 &mvp )
+    {
+        if ( !cachedModelValid )
+        {
+            BuildSampledModelMesh();
+        }
+        if ( !cachedModelValid )
+        {
+            return false;
+        }
+        // Slight blue tint to make geometry easier to distinguish from background.
+        DrawVertexStream( mvp, cachedModelVerts, GL_TRIANGLES, glm::vec3( 0.65f, 0.75f, 0.95f ) );
         return true;
     }
 
@@ -620,6 +795,9 @@ bool VRManager::PollEvents()
                     m_running = false;
                     return false;
                 }
+                m_impl->QueryPlayAreaBounds();
+                m_impl->BuildSampledModelMesh();
+                m_impl->PlaceDemoInRoom();
                 fprintf( stderr, "[VSP_VR] xrBeginSession succeeded.\n" );
             }
 
@@ -660,8 +838,6 @@ bool VRManager::IsSessionRunning() const
 
 bool VRManager::RenderStereoDemo()
 {
-    static int s_frameCounter = 0;
-    ++s_frameCounter;
     if ( !m_impl || !m_running )
     {
         return false;
@@ -703,10 +879,6 @@ bool VRManager::RenderStereoDemo()
 
     if ( !frameState.shouldRender )
     {
-        if ( s_frameCounter <= 240 )
-        {
-            fprintf( stderr, "[VSP_VR] frame %d: shouldRender=false\n", s_frameCounter );
-        }
         XrFrameEndInfo endSkip{ XR_TYPE_FRAME_END_INFO };
         endSkip.displayTime = frameState.predictedDisplayTime;
         endSkip.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -742,11 +914,8 @@ bool VRManager::RenderStereoDemo()
         }
         else
         {
-            if ( s_frameCounter <= 240 )
-            {
-                fprintf( stderr, "[VSP_VR] frame %d: invalid views count=%u flags=0x%llx (empty frame)\n",
-                         s_frameCounter, viewCountOut, static_cast<unsigned long long>( viewState.viewStateFlags ) );
-            }
+            fprintf( stderr, "[VSP_VR] Invalid view flags=0x%llx, submitting empty frame.\n",
+                     static_cast<unsigned long long>( viewState.viewStateFlags ) );
         }
 
         XrFrameEndInfo endSkip{ XR_TYPE_FRAME_END_INFO };
@@ -756,31 +925,6 @@ bool VRManager::RenderStereoDemo()
         endSkip.layers = nullptr;
         xrEndFrame( m_impl->session, &endSkip );
         return true;
-    }
-
-    if ( !m_impl->demoAnchorValid )
-    {
-        const XrPosef &headPose = views[0].pose;
-        const glm::quat headQ( headPose.orientation.w, headPose.orientation.x,
-                               headPose.orientation.y, headPose.orientation.z );
-        const glm::vec3 headP( headPose.position.x, headPose.position.y, headPose.position.z );
-        glm::vec3 fwd = glm::mat3_cast( headQ ) * glm::vec3( 0.f, 0.f, -1.f );
-        if ( glm::length( fwd ) < 1.0e-4f )
-        {
-            fwd = glm::vec3( 0.f, 0.f, -1.f );
-        }
-        else
-        {
-            fwd = glm::normalize( fwd );
-        }
-        m_impl->demoAnchorPos = headP + fwd * 2.0f;
-        m_impl->demoAnchorPos.y = headP.y - 0.15f;
-        m_impl->demoAnchorValid = true;
-    }
-    else if ( s_frameCounter <= 60 )
-    {
-        fprintf( stderr, "[VSP_VR] frame %d: render views flags=0x%llx\n",
-                 s_frameCounter, static_cast<unsigned long long>( viewState.viewStateFlags ) );
     }
 
     XrCompositionLayerProjectionView projViews[2]{ { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW }, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW } };
@@ -822,35 +966,26 @@ bool VRManager::RenderStereoDemo()
         const glm::mat4 proj = ProjectionFromFov( views[eye].fov, nearZ, farZ );
         const glm::mat4 model =
             glm::translate( glm::mat4( 1.f ), m_impl->demoAnchorPos ) *
-            glm::scale( glm::mat4( 1.f ), glm::vec3( 0.55f ) );
+            glm::scale( glm::mat4( 1.f ), glm::vec3( m_impl->demoScale ) ) *
+            glm::translate( glm::mat4( 1.f ), m_impl->modelLocalOffset );
         const glm::mat4 mvp = proj * viewMat * model;
 
-        glUseProgram( m_impl->program );
-        glUniformMatrix4fv( m_impl->uMVP, 1, GL_FALSE, glm::value_ptr( mvp ) );
-        const float cr = ( eye == 0 ) ? 0.9f : 0.4f;
-        const float cg = ( eye == 0 ) ? 0.4f : 0.85f;
-        const float cb = 0.3f;
-        glUniform3f( m_impl->uColor, cr, cg, cb );
-        glBindVertexArray( m_impl->triVAO );
-        const float triVerts[] = {
-            0.0f, 0.45f, 0.0f,
-            -0.4f, -0.35f, 0.0f,
-            0.4f, -0.35f, 0.0f
-        };
-        glBindBuffer( GL_ARRAY_BUFFER, m_impl->triVBO );
-        glBufferData( GL_ARRAY_BUFFER, sizeof( triVerts ), triVerts, GL_STREAM_DRAW );
-        glDrawArrays( GL_TRIANGLES, 0, 3 );
+        glEnable( GL_DEPTH_TEST );
+        const bool drewModel = m_impl->DrawVehicleModel( mvp );
 
-        // Draw simple XYZ reference lines at the same anchor point.
-        const float axisVerts[] = {
-            0.0f, 0.0f, 0.0f,   0.8f, 0.0f, 0.0f, // +X
-            0.0f, 0.0f, 0.0f,   0.0f, 0.8f, 0.0f, // +Y
-            0.0f, 0.0f, 0.0f,   0.0f, 0.0f, -0.8f // -Z (forward)
-        };
-        glBufferData( GL_ARRAY_BUFFER, sizeof( axisVerts ), axisVerts, GL_STREAM_DRAW );
-        glUniformMatrix4fv( m_impl->uMVP, 1, GL_FALSE, glm::value_ptr( mvp ) );
-        glUniform3f( m_impl->uColor, 1.0f, 1.0f, 1.0f );
-        glDrawArrays( GL_LINES, 0, 6 );
+        if ( !drewModel )
+        {
+            // Fallback marker until full scene bridge is available for every draw type.
+            const std::vector<float> triVerts = {
+                0.0f, 0.45f, 0.0f,
+                -0.4f, -0.35f, 0.0f,
+                0.4f, -0.35f, 0.0f
+            };
+            const float cr = ( eye == 0 ) ? 0.9f : 0.4f;
+            const float cg = ( eye == 0 ) ? 0.4f : 0.85f;
+            const float cb = 0.3f;
+            m_impl->DrawVertexStream( mvp, triVerts, GL_TRIANGLES, glm::vec3( cr, cg, cb ) );
+        }
 
         glBindVertexArray( 0 );
         glBindFramebuffer( GL_FRAMEBUFFER, 0 );
