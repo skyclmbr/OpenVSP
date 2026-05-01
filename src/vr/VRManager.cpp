@@ -168,7 +168,7 @@ struct VRManager::Impl
     glm::vec3 modelTranslation = glm::vec3( 0.0f, 0.94f, -1.2f );
     glm::quat modelRotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
     float modelScale = 1.0f;
-    bool yLock = false;
+    bool zLock = false;
 
     XrActionSet actionSet = XR_NULL_HANDLE;
     XrAction gripPoseAction = XR_NULL_HANDLE;
@@ -661,9 +661,9 @@ struct VRManager::Impl
             leftThumbHeldTime += dt;
             if ( leftThumbHeldTime >= 1.0f && !yLockToggledThisPress )
             {
-                yLock = !yLock;
+                zLock = !zLock;
                 yLockToggledThisPress = true;
-                fprintf( stderr, "[VSP_VR] Y-lock %s\n", yLock ? "ON" : "OFF" );
+                fprintf( stderr, "[VSP_VR] Z-lock %s\n", zLock ? "ON" : "OFF" );
             }
         }
         else if ( leftThumbDownPrev )
@@ -712,10 +712,10 @@ struct VRManager::Impl
             {
                 midDelta = glm::vec3( 0.0f );
             }
-            if ( yLock )
+            if ( zLock )
             {
                 modelTranslation.x = twoGrabBaseTranslation.x + midDelta.x * scaleFactor;
-                modelTranslation.z = twoGrabBaseTranslation.z + midDelta.z * scaleFactor;
+                modelTranslation.y = twoGrabBaseTranslation.y + midDelta.y * scaleFactor;
             }
             else
             {
@@ -757,15 +757,15 @@ struct VRManager::Impl
             }
             const glm::quat deltaRot = glm::normalize( hands[activeHand].filteredRot * glm::inverse( singleGrabStartRot ) );
 
-            if ( yLock )
+            if ( zLock )
             {
                 modelTranslation.x = singleGrabBaseTranslation.x + deltaPos.x;
-                modelTranslation.z = singleGrabBaseTranslation.z + deltaPos.z;
+                modelTranslation.y = singleGrabBaseTranslation.y + deltaPos.y;
 
-                const float yaw = atan2f( 2.0f * ( deltaRot.w * deltaRot.y + deltaRot.x * deltaRot.z ),
+                const float yaw = atan2f( 2.0f * ( deltaRot.w * deltaRot.z + deltaRot.x * deltaRot.y ),
                                           1.0f - 2.0f * ( deltaRot.y * deltaRot.y + deltaRot.z * deltaRot.z ) );
                 const float yawFiltered = ( std::abs( yaw ) < 0.012f ) ? 0.0f : yaw;
-                const glm::quat yawOnly = glm::angleAxis( yawFiltered, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+                const glm::quat yawOnly = glm::angleAxis( yawFiltered, glm::vec3( 0.0f, 0.0f, 1.0f ) );
                 modelRotation = glm::normalize( yawOnly * singleGrabBaseRotation );
             }
             else
