@@ -219,6 +219,15 @@ int main( int argc, char** argv )
     {
         return RunVRMode( argc, argv );
     }
+#else
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( argv[i] && strcmp( argv[i], "--vr" ) == 0 )
+        {
+            fprintf( stderr, "[VSP_VR] VR mode requires a build configured with -DVSP_VR=ON (this binary was built without VR).\n" );
+            return 1;
+        }
+    }
 #endif
 
     // Set up MainThreadID if this is entry point.
