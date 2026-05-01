@@ -144,6 +144,7 @@ struct VRManager::Impl
 
     XrSessionState sessionState = XR_SESSION_STATE_UNKNOWN;
     bool sessionBegun = false;
+    int focusStabilizeFrames = 0;
 
     struct EyeSwap
     {
@@ -630,6 +631,12 @@ bool VRManager::PollEvents()
             {
                 m_running = false;
             }
+
+            if ( s->state == XR_SESSION_STATE_FOCUSED )
+            {
+                // Give runtime tracking a moment to settle after resume/remount.
+                m_impl->focusStabilizeFrames = 30;
+            }
             break;
         }
         default:
@@ -647,9 +654,6 @@ bool VRManager::IsSessionRunning() const
     }
     switch ( m_impl->sessionState )
     {
-    case XR_SESSION_STATE_READY:
-    case XR_SESSION_STATE_SYNCHRONIZED:
-    case XR_SESSION_STATE_VISIBLE:
     case XR_SESSION_STATE_FOCUSED:
         return true;
     default:
@@ -722,7 +726,11 @@ bool VRManager::RenderStereoDemo()
     views[1].pose.orientation.w = 1.0f;
 
     r = xrLocateViews( m_impl->session, &vli, &viewState, viewCap, &viewCountOut, views );
-    const XrViewStateFlags needFlags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
+    const XrViewStateFlags needFlags =
+        XR_VIEW_STATE_ORIENTATION_VALID_BIT |
+        XR_VIEW_STATE_POSITION_VALID_BIT |
+        XR_VIEW_STATE_ORIENTATION_TRACKED_BIT |
+        XR_VIEW_STATE_POSITION_TRACKED_BIT;
     if ( XR_FAILED( r ) || viewCountOut != 2 || ( viewState.viewStateFlags & needFlags ) != needFlags )
     {
         if ( XR_FAILED( r ) )
@@ -735,6 +743,18 @@ bool VRManager::RenderStereoDemo()
                      viewCountOut, static_cast<unsigned long long>( viewState.viewStateFlags ) );
         }
 
+        XrFrameEndInfo endSkip{ XR_TYPE_FRAME_END_INFO };
+        endSkip.displayTime = frameState.predictedDisplayTime;
+        endSkip.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        endSkip.layerCount = 0;
+        endSkip.layers = nullptr;
+        xrEndFrame( m_impl->session, &endSkip );
+        return true;
+    }
+
+    if ( m_impl->focusStabilizeFrames > 0 )
+    {
+        --m_impl->focusStabilizeFrames;
         XrFrameEndInfo endSkip{ XR_TYPE_FRAME_END_INFO };
         endSkip.displayTime = frameState.predictedDisplayTime;
         endSkip.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
