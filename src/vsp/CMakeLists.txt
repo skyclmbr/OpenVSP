@@ -42,6 +42,10 @@ IF( NOT VSP_NO_GRAPHICS )
         ${VSP_G_LIBRARIES_CORE_FIRST}
     )
 
+    IF( VSP_VR )
+        TARGET_LINK_LIBRARIES( vsp vsp_vr )
+    ENDIF()
+
     INSTALL( TARGETS vsp RUNTIME DESTINATION . )
 
     ADD_EXECUTABLE(apitest_g
