@@ -34,7 +34,11 @@ IF(WIN32)
     # #include is a no-op.  On the command line it is in force before the first token of
     # every unit, which is the only place the guarantee holds.  Same species as NOMINMAX
     # beside it.
-    ADD_DEFINITIONS(/D _CRT_SECURE_NO_WARNINGS /D "NOMINMAX" /D _USE_MATH_DEFINES /MP )
+    #
+    # /MP must not go through ADD_DEFINITIONS — it breaks MSVC rc.exe in nested projects
+    # (e.g. OpenXR loader).
+    ADD_DEFINITIONS(/D _CRT_SECURE_NO_WARNINGS /D "NOMINMAX" /D _USE_MATH_DEFINES )
+    add_compile_options( $<$<COMPILE_LANGUAGE:CXX>:/MP> $<$<COMPILE_LANGUAGE:C>:/MP> )
 ENDIF(WIN32)
 
 IF(WIN32)

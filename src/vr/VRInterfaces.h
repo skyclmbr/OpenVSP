@@ -6,17 +6,7 @@
 #ifndef VRINTERFACES_H
 #define VRINTERFACES_H
 
-// Phase 0: stub interfaces; OpenXR and runtime wiring come in later phases.
-
-class VRManager
-{
-public:
-    static VRManager &GetInstance();
-    void Init();
-    void Shutdown();
-private:
-    VRManager() = default;
-};
+// Stub interfaces for future phases (panels, input, passthrough). VRManager lives in VRManager.h.
 
 class VRRenderer
 {
