@@ -7,6 +7,10 @@
 
 #include <cstdio>
 #include <cmath>
+#include <string>
+#include <vector>
+
+#include "VSP_Geom_API.h"
 
 #include <GL/glew.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -53,6 +57,19 @@ static GLuint LinkProgram( GLuint vs, GLuint fs )
         return 0;
     }
     return p;
+}
+
+static int GeomTreeDepth( const std::string &geomId )
+{
+    int depth = 0;
+    int guard = 0;
+    std::string p = vsp::GetGeomParent( geomId );
+    while ( !p.empty() && guard++ < 64 )
+    {
+        ++depth;
+        p = vsp::GetGeomParent( p );
+    }
+    return depth;
 }
 
 } // namespace
@@ -227,6 +244,7 @@ void VRImGuiOverlay::Shutdown()
     m_ready = false;
     m_fbW = 0;
     m_fbH = 0;
+    m_selectedGeomId.clear();
 }
 
 void VRImGuiOverlay::NewFrame( float deltaTimeSeconds )
@@ -248,8 +266,71 @@ void VRImGuiOverlay::NewFrame( float deltaTimeSeconds )
 
     ImGui::Begin( "OpenVSP VR", nullptr,
                   ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse );
-    ImGui::TextUnformatted( "Phase 4 — ImGui panel (stub)." );
-    ImGui::TextUnformatted( "Future: parameter panels and file controls." );
+
+    ImGui::TextUnformatted( "Geometry Browser" );
+    ImGui::Separator();
+
+    const float footerH = 52.0f;
+    const float listH = ImGui::GetContentRegionAvail().y - footerH;
+    ImGui::BeginChild( "geom_browser_list", ImVec2( 0.0f, listH ), ImGuiChildFlags_Border,
+                       ImGuiWindowFlags_None );
+
+    const std::vector<std::string> geoms = vsp::FindGeoms();
+    if ( geoms.empty() )
+    {
+        ImGui::TextDisabled( "(no geometry loaded)" );
+    }
+    else
+    {
+        for ( const std::string &gid : geoms )
+        {
+            const int depth = GeomTreeDepth( gid );
+            const std::string typeName = vsp::GetGeomTypeName( gid );
+            const std::string dispName = vsp::GetGeomName( gid );
+
+            std::string label = typeName;
+            label += "  |  ";
+            label += dispName;
+            label += "  |  ";
+            label += gid;
+
+            ImGui::PushID( gid.c_str() );
+            if ( depth > 0 )
+            {
+                ImGui::Indent( static_cast<float>( depth ) * 14.0f );
+            }
+
+            const bool isSelected = ( gid == m_selectedGeomId );
+            if ( ImGui::Selectable( label.c_str(), isSelected, ImGuiSelectableFlags_None ) )
+            {
+                m_selectedGeomId = gid;
+                fprintf( stderr, "[VSP_VR] Geom browser: selected %s (%s)\n", gid.c_str(), dispName.c_str() );
+            }
+
+            if ( depth > 0 )
+            {
+                ImGui::Unindent( static_cast<float>( depth ) * 14.0f );
+            }
+            ImGui::PopID();
+        }
+    }
+
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    ImGui::TextUnformatted( "Selected:" );
+    if ( m_selectedGeomId.empty() )
+    {
+        ImGui::TextDisabled( "(none)" );
+    }
+    else
+    {
+        const std::string selType = vsp::GetGeomTypeName( m_selectedGeomId );
+        const std::string selName = vsp::GetGeomName( m_selectedGeomId );
+        const std::string selLine = selType + "  |  " + selName + "  |  " + m_selectedGeomId;
+        ImGui::TextWrapped( "%s", selLine.c_str() );
+    }
+
     ImGui::End();
 }
 

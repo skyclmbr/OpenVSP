@@ -7,6 +7,7 @@
 #define VRIMGUIOVERLAY_H
 
 #include <glm/mat4x4.hpp>
+#include <string>
 
 /// Phase 4: Dear ImGui rendered to an off-screen texture and drawn as a world-space quad in stage space.
 class VRImGuiOverlay
@@ -45,6 +46,9 @@ private:
     unsigned int m_billboardVBO = 0;
     unsigned int m_billboardProgram = 0;
     int m_uBillboardMVP = -1;
+
+    /// Last geometry row clicked in the VR browser (OpenVSP geom id string).
+    std::string m_selectedGeomId;
 };
 
 #endif
