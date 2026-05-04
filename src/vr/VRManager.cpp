@@ -1164,7 +1164,7 @@ void main() {
         if ( !imguiOverlay )
         {
             imguiOverlay = std::make_unique<VRImGuiOverlay>();
-            if ( !imguiOverlay->Init( 640, 480 ) )
+            if ( !imguiOverlay->Init( 720, 540 ) )
             {
                 fprintf( stderr, "[VSP_VR] ImGui overlay init failed; continuing without UI panel.\n" );
                 imguiOverlay.reset();
