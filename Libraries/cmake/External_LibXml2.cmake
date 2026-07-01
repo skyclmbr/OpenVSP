@@ -7,10 +7,11 @@ if(WIN32)
   get_filename_component(_self_dir ${CMAKE_CURRENT_LIST_FILE} PATH)
 
   file(TO_NATIVE_PATH ${libxml2_install} libxml2_install_win)
+  string(REPLACE "\\" "\\\\" libxml2_install_win_escaped "${libxml2_install_win}")
 
   file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/libxml2_config.cmake "
 execute_process(
-  COMMAND cscript configure.js prefix=${libxml2_install_win} iconv=no
+  COMMAND cscript configure.js prefix=${libxml2_install_win_escaped} iconv=no
   WORKING_DIRECTORY \"${libxml2_source}/win32\"
   )")
 
@@ -20,23 +21,21 @@ execute_process(
   WORKING_DIRECTORY \"${libxml2_source}/win32\"
   )")
 
-  file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/libxml2_install.cmake "
-execute_process(
-  COMMAND nmake /f Makefile.msvc install
-  WORKING_DIRECTORY \"${libxml2_source}/win32\"
-  )")
-
   set(libxml2_patch_command "")
   set(libxml2_config_command CONFIGURE_COMMAND ${CMAKE_COMMAND} -P
     ${CMAKE_CURRENT_BINARY_DIR}/libxml2_config.cmake)
   set(libxml2_build_command BUILD_COMMAND ${CMAKE_COMMAND} -P
     ${CMAKE_CURRENT_BINARY_DIR}/libxml2_build.cmake)
-  set(libxml2_install_command INSTALL_COMMAND ${CMAKE_COMMAND} -P
-    ${CMAKE_CURRENT_BINARY_DIR}/libxml2_install.cmake
-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2.dll
-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2.lib
-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2_a_dll.lib
-	COMMAND ${CMAKE_COMMAND} -E rename ${libxml2_install}/lib/libxml2_a.lib ${libxml2_install}/lib/libxml2.lib )
+  set(libxml2_install_command
+    INSTALL_COMMAND
+      ${CMAKE_COMMAND} -E make_directory ${libxml2_install}/include/libxml2
+    COMMAND
+      ${CMAKE_COMMAND} -E copy_directory ${libxml2_source}/include/libxml ${libxml2_install}/include/libxml2/libxml
+    COMMAND
+      ${CMAKE_COMMAND} -E make_directory ${libxml2_install}/lib
+    COMMAND
+      ${CMAKE_COMMAND} -E copy ${libxml2_source}/win32/bin.msvc/libxml2_a.lib ${libxml2_install}/lib/libxml2.lib
+  )
 else()
   set(libxml2_patch_command "")
   set(libxml2_config_command CONFIGURE_COMMAND ./configure

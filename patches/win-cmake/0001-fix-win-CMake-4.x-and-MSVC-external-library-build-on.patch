@@ -1,0 +1,1494 @@
+From e235ef3787fafe5a5b5fbcef81e684550f64270f Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Wed, 1 Jul 2026 15:02:16 -0700
+Subject: [PATCH] fix(win): CMake 4.x and MSVC external library build on
+ Windows
+
+Squashed toolchain layer for building OpenVSP on current Windows (CMake 4.x,
+VS 2022+): policy minimums for Code-Eli/GLEW/STEPCode, LibXml2 MSVC install
+workaround, STEPCODE extracted-source patch, build-vsp.cmd, win-build scripts,
+and exported mailbox patch. Rebase onto origin/main each upstream release.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/Libraries/cmake/External_CodeEli.cmake b/Libraries/cmake/External_CodeEli.cmake
+index 3f517f193..6d6f673b1 100644
+--- a/Libraries/cmake/External_CodeEli.cmake
++++ b/Libraries/cmake/External_CodeEli.cmake
+@@ -2,6 +2,7 @@ ExternalProject_Add( CODEELI
+ 	URL ${CMAKE_SOURCE_DIR}/Code-Eli-709ed73905b8.zip
+ 	DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+ 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
+ 		-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+ 		-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+diff --git a/Libraries/cmake/External_GLEW.cmake b/Libraries/cmake/External_GLEW.cmake
+index 0eff188cb..3242eb0be 100644
+--- a/Libraries/cmake/External_GLEW.cmake
++++ b/Libraries/cmake/External_GLEW.cmake
+@@ -7,6 +7,7 @@ ExternalProject_Add( GLEW
+ 	CMAKE_ARGS
+ 		-DBUILD_SHARED_LIBS:BOOL=OFF
+ 		-DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
+ 		-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+ 		-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+diff --git a/Libraries/cmake/External_LibXml2.cmake b/Libraries/cmake/External_LibXml2.cmake
+index 24db6f6a9..d02378b32 100644
+--- a/Libraries/cmake/External_LibXml2.cmake
++++ b/Libraries/cmake/External_LibXml2.cmake
+@@ -7,10 +7,11 @@ if(WIN32)
+   get_filename_component(_self_dir ${CMAKE_CURRENT_LIST_FILE} PATH)
+ 
+   file(TO_NATIVE_PATH ${libxml2_install} libxml2_install_win)
++  string(REPLACE "\\" "\\\\" libxml2_install_win_escaped "${libxml2_install_win}")
+ 
+   file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/libxml2_config.cmake "
+ execute_process(
+-  COMMAND cscript configure.js prefix=${libxml2_install_win} iconv=no
++  COMMAND cscript configure.js prefix=${libxml2_install_win_escaped} iconv=no
+   WORKING_DIRECTORY \"${libxml2_source}/win32\"
+   )")
+ 
+@@ -20,23 +21,21 @@ execute_process(
+   WORKING_DIRECTORY \"${libxml2_source}/win32\"
+   )")
+ 
+-  file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/libxml2_install.cmake "
+-execute_process(
+-  COMMAND nmake /f Makefile.msvc install
+-  WORKING_DIRECTORY \"${libxml2_source}/win32\"
+-  )")
+-
+   set(libxml2_patch_command "")
+   set(libxml2_config_command CONFIGURE_COMMAND ${CMAKE_COMMAND} -P
+     ${CMAKE_CURRENT_BINARY_DIR}/libxml2_config.cmake)
+   set(libxml2_build_command BUILD_COMMAND ${CMAKE_COMMAND} -P
+     ${CMAKE_CURRENT_BINARY_DIR}/libxml2_build.cmake)
+-  set(libxml2_install_command INSTALL_COMMAND ${CMAKE_COMMAND} -P
+-    ${CMAKE_CURRENT_BINARY_DIR}/libxml2_install.cmake
+-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2.dll
+-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2.lib
+-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2_a_dll.lib
+-	COMMAND ${CMAKE_COMMAND} -E rename ${libxml2_install}/lib/libxml2_a.lib ${libxml2_install}/lib/libxml2.lib )
++  set(libxml2_install_command
++    INSTALL_COMMAND
++      ${CMAKE_COMMAND} -E make_directory ${libxml2_install}/include/libxml2
++    COMMAND
++      ${CMAKE_COMMAND} -E copy_directory ${libxml2_source}/include/libxml ${libxml2_install}/include/libxml2/libxml
++    COMMAND
++      ${CMAKE_COMMAND} -E make_directory ${libxml2_install}/lib
++    COMMAND
++      ${CMAKE_COMMAND} -E copy ${libxml2_source}/win32/bin.msvc/libxml2_a.lib ${libxml2_install}/lib/libxml2.lib
++  )
+ else()
+   set(libxml2_patch_command "")
+   set(libxml2_config_command CONFIGURE_COMMAND ./configure
+diff --git a/Libraries/cmake/External_STEPCode.cmake b/Libraries/cmake/External_STEPCode.cmake
+index 9e354a083..29ed07202 100644
+--- a/Libraries/cmake/External_STEPCode.cmake
++++ b/Libraries/cmake/External_STEPCode.cmake
+@@ -20,11 +20,15 @@ ENDIF()
+ ExternalProject_Add( STEPCODE
+ 	URL ${CMAKE_CURRENT_SOURCE_DIR}/stepcode-28350d91294b.zip
+ 	DOWNLOAD_EXTRACT_TIMESTAMP TRUE
++	PATCH_COMMAND
++		${CMAKE_COMMAND} -DSTEP_SOURCE=<SOURCE_DIR>
++		-P ${CMAKE_CURRENT_LIST_DIR}/PatchSTEPCodeForCMake4.cmake
+ 	CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
+ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+ 		-DCMAKE_CXX_FLAGS=${SC_CMAKE_CXX_FLAGS}
+ 		-DCMAKE_C_FLAGS=${SC_CMAKE_C_FLAGS}
+-		-DSC_BUILD_TYPE=Debug
++		-DSC_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+ 		-DSC_BUILD_SCHEMAS=ap203/ap203.exp
+ 		-DSC_BUILD_STATIC_LIBS=ON
+ 		-DSC_BUILD_SHARED_LIBS=${SC_SHARED}
+@@ -44,7 +48,7 @@ ENDIF()
+ SET( STEPCODE_BINARY_DIR ${BINARY_DIR} )
+ 
+ # SC CMake does not honor -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+-# Consequently, force Debug so it installs in ../sc-install directory
+-# instead of /usr/local/lib.
++# Configure SC build type to match the parent build to avoid MSVC runtime
++# mismatches when linking OpenVSP against stepcode libraries.
+ #
+ # SC's own programs fail to build with -DSC_BUILD_SHARED_LIBS=OFF
+\ No newline at end of file
+diff --git a/Libraries/cmake/PatchSTEPCodeForCMake4.cmake b/Libraries/cmake/PatchSTEPCodeForCMake4.cmake
+new file mode 100644
+index 000000000..70e9ae317
+--- /dev/null
++++ b/Libraries/cmake/PatchSTEPCodeForCMake4.cmake
+@@ -0,0 +1,67 @@
++# Patches extracted STEPCODE sources for CMake 4.x (invoked from External_STEPCode.cmake).
++if(NOT DEFINED STEP_SOURCE)
++  message(FATAL_ERROR "PatchSTEPCodeForCMake4.cmake requires -DSTEP_SOURCE=<path>")
++endif()
++
++set(_main "${STEP_SOURCE}/CMakeLists.txt")
++if(NOT EXISTS "${_main}")
++  message(FATAL_ERROR "Missing ${_main}")
++endif()
++
++file(READ "${_main}" _main_txt)
++string(REPLACE
++  [[cmake_minimum_required(VERSION 2.8.7)
++if(COMMAND CMAKE_POLICY)
++  CMAKE_POLICY(SET CMP0003 NEW)
++  if ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
++    CMAKE_POLICY(SET CMP0026 OLD)
++  endif ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
++endif(COMMAND CMAKE_POLICY)]]
++  [[cmake_minimum_required(VERSION 3.5)
++if(COMMAND CMAKE_POLICY)
++  CMAKE_POLICY(SET CMP0003 NEW)
++endif(COMMAND CMAKE_POLICY)]]
++  _main_txt
++  "${_main_txt}"
++)
++# Fallback if line endings differ (CRLF archives).
++string(REPLACE
++  [[cmake_minimum_required(VERSION 2.8.7)
++if(COMMAND CMAKE_POLICY)
++  CMAKE_POLICY(SET CMP0003 NEW)
++  if ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
++    CMAKE_POLICY(SET CMP0026 OLD)
++  endif ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
++endif(COMMAND CMAKE_POLICY)]]
++  [[cmake_minimum_required(VERSION 3.5)
++if(COMMAND CMAKE_POLICY)
++  CMAKE_POLICY(SET CMP0003 NEW)
++endif(COMMAND CMAKE_POLICY)]]
++  _main_txt
++  "${_main_txt}"
++)
++file(WRITE "${_main}" "${_main_txt}")
++
++set(_scan "${STEP_SOURCE}/cmake/schema_scanner/CMakeLists.txt")
++if(NOT EXISTS "${_scan}")
++  message(FATAL_ERROR "Missing ${_scan}")
++endif()
++
++file(READ "${_scan}" _scan_txt)
++string(REPLACE
++  [[project(SC_SUBPROJECT_SCHEMA_SCANNER)
++cmake_minimum_required(VERSION 2.8.7)]]
++  [[cmake_minimum_required(VERSION 3.5)
++project(SC_SUBPROJECT_SCHEMA_SCANNER)]]
++  _scan_txt
++  "${_scan_txt}"
++)
++string(REPLACE
++  [[project(SC_SUBPROJECT_SCHEMA_SCANNER)
++cmake_minimum_required(VERSION 2.8.7)]]
++  [[cmake_minimum_required(VERSION 3.5)
++project(SC_SUBPROJECT_SCHEMA_SCANNER)]]
++  _scan_txt
++  "${_scan_txt}"
++)
++file(WRITE "${_scan}" "${_scan_txt}")
+diff --git a/docs/win-build/WIN_BUILD.md b/docs/win-build/WIN_BUILD.md
+new file mode 100644
+index 000000000..3cc0e9c60
+--- /dev/null
++++ b/docs/win-build/WIN_BUILD.md
+@@ -0,0 +1,80 @@
++# Windows / CMake 4.x build layer (Bryan fork)
++
++OpenVSP upstream (`openvsp/openvsp` `main`) does not always build on current Windows
++toolchains (CMake 4.x, VS 2022+) without small changes to **external library** CMake
++scripts under `Libraries/cmake/`.
++
++This fork keeps those changes in a **single commit** on branch `bry/win-cmake`, replayed
++on top of each upstream release via **rebase** (not merge).
++
++## Branch layout
++
++```
++origin/main (Rob)  →  bry/win-cmake (+1 win-cmake commit)  →  dev_BryAI (your work)
++```
++
++| Branch | Purpose |
++|--------|---------|
++| `origin/main` | Upstream OpenVSP releases (read-only) |
++| `bry/win-cmake` | Exactly one commit: Windows/CMake external-lib fixes |
++| `dev_BryAI` | Your feature work; rebase onto `bry/win-cmake` |
++
++## Files touched by the win-cmake commit
++
++- `Libraries/cmake/External_CodeEli.cmake` — `CMAKE_POLICY_VERSION_MINIMUM=3.5`
++- `Libraries/cmake/External_GLEW.cmake` — same
++- `Libraries/cmake/External_LibXml2.cmake` — MSVC path escaping; manual lib install
++- `Libraries/cmake/External_STEPCode.cmake` — policy + build type; `PATCH_COMMAND`
++- `Libraries/cmake/PatchSTEPCodeForCMake4.cmake` — STEPCODE CMake 4.x source patch
++- `scripts/build-vsp.cmd` — build `vsp` with `vcvars64` from any shell
++
++Do **not** mix these edits into feature commits.
++
++## When Rob releases a new version
++
++From repo root (`OpenVSP/`):
++
++```powershell
++.\scripts\win-build\rebase-on-upstream.ps1
++```
++
++That fetches upstream, rebases `bry/win-cmake` onto `origin/main`, and reminds you to
++rebase `dev_BryAI`. Resolve conflicts only in the files listed above.
++
++Then re-export the patch file (after a successful rebase):
++
++```powershell
++.\scripts\win-build\export-patches.ps1
++git add patches/win-cmake/
++git commit -m "chore(win): refresh patch export after upstream rebase"
++```
++
++## Fresh clone: apply without the branch
++
++```powershell
++git fetch origin
++git reset --hard origin/main
++.\scripts\win-build\apply-patches.ps1
++```
++
++Or: `git am patches/win-cmake/*.patch`
++
++## Build (after patches applied)
++
++```powershell
++# Libraries (once per clean tree or after cmake script changes)
++cmake -S Libraries -B VSP_Libraries_BryAI -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
++cmake --build VSP_Libraries_BryAI -j 8
++
++# OpenVSP
++cmake -S . -B VSP_Build_BryAI -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
++  -DVSP_LIBRARY_PATH=F:/AirplaneTools/OpenVSPCode/OpenVSP/VSP_Libraries_BryAI -DVSP_NO_HELP=ON
++.\scripts\build-vsp.cmd F:\AirplaneTools\OpenVSPCode\OpenVSP\VSP_Build_BryAI
++```
++
++Adjust paths as needed. `build-vsp.cmd` runs `vcvars64` automatically.
++
++## Upstream overlap
++
++If Rob absorbs a fix upstream, **drop the duplicate hunk** from the win-cmake commit
++during rebase rather than fighting to keep it.
+diff --git a/patches/win-cmake/0001-fix-win-CMake-4.x-and-MSVC-external-library-build-on.patch b/patches/win-cmake/0001-fix-win-CMake-4.x-and-MSVC-external-library-build-on.patch
+new file mode 100644
+index 000000000..ece70daac
+--- /dev/null
++++ b/patches/win-cmake/0001-fix-win-CMake-4.x-and-MSVC-external-library-build-on.patch
+@@ -0,0 +1,995 @@
++From 1bbb3fc5f507321354a73ba1f887711d5a830555 Mon Sep 17 00:00:00 2001
++From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
++Date: Wed, 1 Jul 2026 15:02:16 -0700
++Subject: [PATCH] fix(win): CMake 4.x and MSVC external library build on
++ Windows
++
++Squashed toolchain layer for building OpenVSP on current Windows (CMake 4.x,
++VS 2022+): policy minimums for Code-Eli/GLEW/STEPCode, LibXml2 MSVC install
++workaround, STEPCODE extracted-source patch, build-vsp.cmd, win-build scripts,
++and exported mailbox patch. Rebase onto origin/main each upstream release.
++
++Co-authored-by: Cursor <cursoragent@cursor.com>
++
++diff --git a/Libraries/cmake/External_CodeEli.cmake b/Libraries/cmake/External_CodeEli.cmake
++index 3f517f193..6d6f673b1 100644
++--- a/Libraries/cmake/External_CodeEli.cmake
+++++ b/Libraries/cmake/External_CodeEli.cmake
++@@ -2,6 +2,7 @@ ExternalProject_Add( CODEELI
++ 	URL ${CMAKE_SOURCE_DIR}/Code-Eli-709ed73905b8.zip
++ 	DOWNLOAD_EXTRACT_TIMESTAMP TRUE
++ 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
++ 		-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
++ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
++ 		-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
++diff --git a/Libraries/cmake/External_GLEW.cmake b/Libraries/cmake/External_GLEW.cmake
++index 0eff188cb..3242eb0be 100644
++--- a/Libraries/cmake/External_GLEW.cmake
+++++ b/Libraries/cmake/External_GLEW.cmake
++@@ -7,6 +7,7 @@ ExternalProject_Add( GLEW
++ 	CMAKE_ARGS
++ 		-DBUILD_SHARED_LIBS:BOOL=OFF
++ 		-DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
++ 		-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
++ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
++ 		-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
++diff --git a/Libraries/cmake/External_LibXml2.cmake b/Libraries/cmake/External_LibXml2.cmake
++index 24db6f6a9..d02378b32 100644
++--- a/Libraries/cmake/External_LibXml2.cmake
+++++ b/Libraries/cmake/External_LibXml2.cmake
++@@ -7,10 +7,11 @@ if(WIN32)
++   get_filename_component(_self_dir ${CMAKE_CURRENT_LIST_FILE} PATH)
++ 
++   file(TO_NATIVE_PATH ${libxml2_install} libxml2_install_win)
+++  string(REPLACE "\\" "\\\\" libxml2_install_win_escaped "${libxml2_install_win}")
++ 
++   file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/libxml2_config.cmake "
++ execute_process(
++-  COMMAND cscript configure.js prefix=${libxml2_install_win} iconv=no
+++  COMMAND cscript configure.js prefix=${libxml2_install_win_escaped} iconv=no
++   WORKING_DIRECTORY \"${libxml2_source}/win32\"
++   )")
++ 
++@@ -20,23 +21,21 @@ execute_process(
++   WORKING_DIRECTORY \"${libxml2_source}/win32\"
++   )")
++ 
++-  file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/libxml2_install.cmake "
++-execute_process(
++-  COMMAND nmake /f Makefile.msvc install
++-  WORKING_DIRECTORY \"${libxml2_source}/win32\"
++-  )")
++-
++   set(libxml2_patch_command "")
++   set(libxml2_config_command CONFIGURE_COMMAND ${CMAKE_COMMAND} -P
++     ${CMAKE_CURRENT_BINARY_DIR}/libxml2_config.cmake)
++   set(libxml2_build_command BUILD_COMMAND ${CMAKE_COMMAND} -P
++     ${CMAKE_CURRENT_BINARY_DIR}/libxml2_build.cmake)
++-  set(libxml2_install_command INSTALL_COMMAND ${CMAKE_COMMAND} -P
++-    ${CMAKE_CURRENT_BINARY_DIR}/libxml2_install.cmake
++-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2.dll
++-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2.lib
++-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2_a_dll.lib
++-	COMMAND ${CMAKE_COMMAND} -E rename ${libxml2_install}/lib/libxml2_a.lib ${libxml2_install}/lib/libxml2.lib )
+++  set(libxml2_install_command
+++    INSTALL_COMMAND
+++      ${CMAKE_COMMAND} -E make_directory ${libxml2_install}/include/libxml2
+++    COMMAND
+++      ${CMAKE_COMMAND} -E copy_directory ${libxml2_source}/include/libxml ${libxml2_install}/include/libxml2/libxml
+++    COMMAND
+++      ${CMAKE_COMMAND} -E make_directory ${libxml2_install}/lib
+++    COMMAND
+++      ${CMAKE_COMMAND} -E copy ${libxml2_source}/win32/bin.msvc/libxml2_a.lib ${libxml2_install}/lib/libxml2.lib
+++  )
++ else()
++   set(libxml2_patch_command "")
++   set(libxml2_config_command CONFIGURE_COMMAND ./configure
++diff --git a/Libraries/cmake/External_STEPCode.cmake b/Libraries/cmake/External_STEPCode.cmake
++index 9e354a083..29ed07202 100644
++--- a/Libraries/cmake/External_STEPCode.cmake
+++++ b/Libraries/cmake/External_STEPCode.cmake
++@@ -20,11 +20,15 @@ ENDIF()
++ ExternalProject_Add( STEPCODE
++ 	URL ${CMAKE_CURRENT_SOURCE_DIR}/stepcode-28350d91294b.zip
++ 	DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+++	PATCH_COMMAND
+++		${CMAKE_COMMAND} -DSTEP_SOURCE=<SOURCE_DIR>
+++		-P ${CMAKE_CURRENT_LIST_DIR}/PatchSTEPCodeForCMake4.cmake
++ 	CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
++ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
++ 		-DCMAKE_CXX_FLAGS=${SC_CMAKE_CXX_FLAGS}
++ 		-DCMAKE_C_FLAGS=${SC_CMAKE_C_FLAGS}
++-		-DSC_BUILD_TYPE=Debug
+++		-DSC_BUILD_TYPE=${CMAKE_BUILD_TYPE}
++ 		-DSC_BUILD_SCHEMAS=ap203/ap203.exp
++ 		-DSC_BUILD_STATIC_LIBS=ON
++ 		-DSC_BUILD_SHARED_LIBS=${SC_SHARED}
++@@ -44,7 +48,7 @@ ENDIF()
++ SET( STEPCODE_BINARY_DIR ${BINARY_DIR} )
++ 
++ # SC CMake does not honor -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
++-# Consequently, force Debug so it installs in ../sc-install directory
++-# instead of /usr/local/lib.
+++# Configure SC build type to match the parent build to avoid MSVC runtime
+++# mismatches when linking OpenVSP against stepcode libraries.
++ #
++ # SC's own programs fail to build with -DSC_BUILD_SHARED_LIBS=OFF
++\ No newline at end of file
++diff --git a/Libraries/cmake/PatchSTEPCodeForCMake4.cmake b/Libraries/cmake/PatchSTEPCodeForCMake4.cmake
++new file mode 100644
++index 000000000..70e9ae317
++--- /dev/null
+++++ b/Libraries/cmake/PatchSTEPCodeForCMake4.cmake
++@@ -0,0 +1,67 @@
+++# Patches extracted STEPCODE sources for CMake 4.x (invoked from External_STEPCode.cmake).
+++if(NOT DEFINED STEP_SOURCE)
+++  message(FATAL_ERROR "PatchSTEPCodeForCMake4.cmake requires -DSTEP_SOURCE=<path>")
+++endif()
+++
+++set(_main "${STEP_SOURCE}/CMakeLists.txt")
+++if(NOT EXISTS "${_main}")
+++  message(FATAL_ERROR "Missing ${_main}")
+++endif()
+++
+++file(READ "${_main}" _main_txt)
+++string(REPLACE
+++  [[cmake_minimum_required(VERSION 2.8.7)
+++if(COMMAND CMAKE_POLICY)
+++  CMAKE_POLICY(SET CMP0003 NEW)
+++  if ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
+++    CMAKE_POLICY(SET CMP0026 OLD)
+++  endif ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
+++endif(COMMAND CMAKE_POLICY)]]
+++  [[cmake_minimum_required(VERSION 3.5)
+++if(COMMAND CMAKE_POLICY)
+++  CMAKE_POLICY(SET CMP0003 NEW)
+++endif(COMMAND CMAKE_POLICY)]]
+++  _main_txt
+++  "${_main_txt}"
+++)
+++# Fallback if line endings differ (CRLF archives).
+++string(REPLACE
+++  [[cmake_minimum_required(VERSION 2.8.7)
+++if(COMMAND CMAKE_POLICY)
+++  CMAKE_POLICY(SET CMP0003 NEW)
+++  if ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
+++    CMAKE_POLICY(SET CMP0026 OLD)
+++  endif ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
+++endif(COMMAND CMAKE_POLICY)]]
+++  [[cmake_minimum_required(VERSION 3.5)
+++if(COMMAND CMAKE_POLICY)
+++  CMAKE_POLICY(SET CMP0003 NEW)
+++endif(COMMAND CMAKE_POLICY)]]
+++  _main_txt
+++  "${_main_txt}"
+++)
+++file(WRITE "${_main}" "${_main_txt}")
+++
+++set(_scan "${STEP_SOURCE}/cmake/schema_scanner/CMakeLists.txt")
+++if(NOT EXISTS "${_scan}")
+++  message(FATAL_ERROR "Missing ${_scan}")
+++endif()
+++
+++file(READ "${_scan}" _scan_txt)
+++string(REPLACE
+++  [[project(SC_SUBPROJECT_SCHEMA_SCANNER)
+++cmake_minimum_required(VERSION 2.8.7)]]
+++  [[cmake_minimum_required(VERSION 3.5)
+++project(SC_SUBPROJECT_SCHEMA_SCANNER)]]
+++  _scan_txt
+++  "${_scan_txt}"
+++)
+++string(REPLACE
+++  [[project(SC_SUBPROJECT_SCHEMA_SCANNER)
+++cmake_minimum_required(VERSION 2.8.7)]]
+++  [[cmake_minimum_required(VERSION 3.5)
+++project(SC_SUBPROJECT_SCHEMA_SCANNER)]]
+++  _scan_txt
+++  "${_scan_txt}"
+++)
+++file(WRITE "${_scan}" "${_scan_txt}")
++diff --git a/docs/win-build/WIN_BUILD.md b/docs/win-build/WIN_BUILD.md
++new file mode 100644
++index 000000000..3cc0e9c60
++--- /dev/null
+++++ b/docs/win-build/WIN_BUILD.md
++@@ -0,0 +1,80 @@
+++# Windows / CMake 4.x build layer (Bryan fork)
+++
+++OpenVSP upstream (`openvsp/openvsp` `main`) does not always build on current Windows
+++toolchains (CMake 4.x, VS 2022+) without small changes to **external library** CMake
+++scripts under `Libraries/cmake/`.
+++
+++This fork keeps those changes in a **single commit** on branch `bry/win-cmake`, replayed
+++on top of each upstream release via **rebase** (not merge).
+++
+++## Branch layout
+++
+++```
+++origin/main (Rob)  →  bry/win-cmake (+1 win-cmake commit)  →  dev_BryAI (your work)
+++```
+++
+++| Branch | Purpose |
+++|--------|---------|
+++| `origin/main` | Upstream OpenVSP releases (read-only) |
+++| `bry/win-cmake` | Exactly one commit: Windows/CMake external-lib fixes |
+++| `dev_BryAI` | Your feature work; rebase onto `bry/win-cmake` |
+++
+++## Files touched by the win-cmake commit
+++
+++- `Libraries/cmake/External_CodeEli.cmake` — `CMAKE_POLICY_VERSION_MINIMUM=3.5`
+++- `Libraries/cmake/External_GLEW.cmake` — same
+++- `Libraries/cmake/External_LibXml2.cmake` — MSVC path escaping; manual lib install
+++- `Libraries/cmake/External_STEPCode.cmake` — policy + build type; `PATCH_COMMAND`
+++- `Libraries/cmake/PatchSTEPCodeForCMake4.cmake` — STEPCODE CMake 4.x source patch
+++- `scripts/build-vsp.cmd` — build `vsp` with `vcvars64` from any shell
+++
+++Do **not** mix these edits into feature commits.
+++
+++## When Rob releases a new version
+++
+++From repo root (`OpenVSP/`):
+++
+++```powershell
+++.\scripts\win-build\rebase-on-upstream.ps1
+++```
+++
+++That fetches upstream, rebases `bry/win-cmake` onto `origin/main`, and reminds you to
+++rebase `dev_BryAI`. Resolve conflicts only in the files listed above.
+++
+++Then re-export the patch file (after a successful rebase):
+++
+++```powershell
+++.\scripts\win-build\export-patches.ps1
+++git add patches/win-cmake/
+++git commit -m "chore(win): refresh patch export after upstream rebase"
+++```
+++
+++## Fresh clone: apply without the branch
+++
+++```powershell
+++git fetch origin
+++git reset --hard origin/main
+++.\scripts\win-build\apply-patches.ps1
+++```
+++
+++Or: `git am patches/win-cmake/*.patch`
+++
+++## Build (after patches applied)
+++
+++```powershell
+++# Libraries (once per clean tree or after cmake script changes)
+++cmake -S Libraries -B VSP_Libraries_BryAI -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+++cmake --build VSP_Libraries_BryAI -j 8
+++
+++# OpenVSP
+++cmake -S . -B VSP_Build_BryAI -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+++  -DVSP_LIBRARY_PATH=F:/AirplaneTools/OpenVSPCode/OpenVSP/VSP_Libraries_BryAI -DVSP_NO_HELP=ON
+++.\scripts\build-vsp.cmd F:\AirplaneTools\OpenVSPCode\OpenVSP\VSP_Build_BryAI
+++```
+++
+++Adjust paths as needed. `build-vsp.cmd` runs `vcvars64` automatically.
+++
+++## Upstream overlap
+++
+++If Rob absorbs a fix upstream, **drop the duplicate hunk** from the win-cmake commit
+++during rebase rather than fighting to keep it.
++diff --git a/patches/win-cmake/0001-fix-win-CMake-4.x-and-MSVC-external-library-build-on.patch b/patches/win-cmake/0001-fix-win-CMake-4.x-and-MSVC-external-library-build-on.patch
++new file mode 100644
++index 000000000..6a7d82e7e
++--- /dev/null
+++++ b/patches/win-cmake/0001-fix-win-CMake-4.x-and-MSVC-external-library-build-on.patch
++@@ -0,0 +1,496 @@
+++From 1d9683713ea457782910ac05656e36dc4a89da55 Mon Sep 17 00:00:00 2001
+++From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+++Date: Wed, 1 Jul 2026 15:02:01 -0700
+++Subject: [PATCH] fix(win): CMake 4.x and MSVC external library build on
+++ Windows
+++
+++Squashed toolchain layer for building OpenVSP on current Windows (CMake 4.x,
+++VS 2022+): policy minimums for Code-Eli/GLEW/STEPCode, LibXml2 MSVC install
+++workaround, STEPCODE extracted-source patch, and build-vsp.cmd helper.
+++
+++Includes scripts/win-build for rebase/export/apply workflow (see
+++docs/win-build/WIN_BUILD.md). Rebase this single commit onto origin/main each
+++upstream release; keep feature work on dev_BryAI.
+++
+++Co-authored-by: Cursor <cursoragent@cursor.com>
+++
+++diff --git a/Libraries/cmake/External_CodeEli.cmake b/Libraries/cmake/External_CodeEli.cmake
+++index 3f517f193..6d6f673b1 100644
+++--- a/Libraries/cmake/External_CodeEli.cmake
++++++ b/Libraries/cmake/External_CodeEli.cmake
+++@@ -2,6 +2,7 @@ ExternalProject_Add( CODEELI
+++ 	URL ${CMAKE_SOURCE_DIR}/Code-Eli-709ed73905b8.zip
+++ 	DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+++ 	CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
++++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
+++ 		-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+++ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+++ 		-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+++diff --git a/Libraries/cmake/External_GLEW.cmake b/Libraries/cmake/External_GLEW.cmake
+++index 0eff188cb..3242eb0be 100644
+++--- a/Libraries/cmake/External_GLEW.cmake
++++++ b/Libraries/cmake/External_GLEW.cmake
+++@@ -7,6 +7,7 @@ ExternalProject_Add( GLEW
+++ 	CMAKE_ARGS
+++ 		-DBUILD_SHARED_LIBS:BOOL=OFF
+++ 		-DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
++++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
+++ 		-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+++ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+++ 		-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+++diff --git a/Libraries/cmake/External_LibXml2.cmake b/Libraries/cmake/External_LibXml2.cmake
+++index 24db6f6a9..d02378b32 100644
+++--- a/Libraries/cmake/External_LibXml2.cmake
++++++ b/Libraries/cmake/External_LibXml2.cmake
+++@@ -7,10 +7,11 @@ if(WIN32)
+++   get_filename_component(_self_dir ${CMAKE_CURRENT_LIST_FILE} PATH)
+++ 
+++   file(TO_NATIVE_PATH ${libxml2_install} libxml2_install_win)
++++  string(REPLACE "\\" "\\\\" libxml2_install_win_escaped "${libxml2_install_win}")
+++ 
+++   file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/libxml2_config.cmake "
+++ execute_process(
+++-  COMMAND cscript configure.js prefix=${libxml2_install_win} iconv=no
++++  COMMAND cscript configure.js prefix=${libxml2_install_win_escaped} iconv=no
+++   WORKING_DIRECTORY \"${libxml2_source}/win32\"
+++   )")
+++ 
+++@@ -20,23 +21,21 @@ execute_process(
+++   WORKING_DIRECTORY \"${libxml2_source}/win32\"
+++   )")
+++ 
+++-  file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/libxml2_install.cmake "
+++-execute_process(
+++-  COMMAND nmake /f Makefile.msvc install
+++-  WORKING_DIRECTORY \"${libxml2_source}/win32\"
+++-  )")
+++-
+++   set(libxml2_patch_command "")
+++   set(libxml2_config_command CONFIGURE_COMMAND ${CMAKE_COMMAND} -P
+++     ${CMAKE_CURRENT_BINARY_DIR}/libxml2_config.cmake)
+++   set(libxml2_build_command BUILD_COMMAND ${CMAKE_COMMAND} -P
+++     ${CMAKE_CURRENT_BINARY_DIR}/libxml2_build.cmake)
+++-  set(libxml2_install_command INSTALL_COMMAND ${CMAKE_COMMAND} -P
+++-    ${CMAKE_CURRENT_BINARY_DIR}/libxml2_install.cmake
+++-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2.dll
+++-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2.lib
+++-	COMMAND ${CMAKE_COMMAND} -E remove ${libxml2_install}/lib/libxml2_a_dll.lib
+++-	COMMAND ${CMAKE_COMMAND} -E rename ${libxml2_install}/lib/libxml2_a.lib ${libxml2_install}/lib/libxml2.lib )
++++  set(libxml2_install_command
++++    INSTALL_COMMAND
++++      ${CMAKE_COMMAND} -E make_directory ${libxml2_install}/include/libxml2
++++    COMMAND
++++      ${CMAKE_COMMAND} -E copy_directory ${libxml2_source}/include/libxml ${libxml2_install}/include/libxml2/libxml
++++    COMMAND
++++      ${CMAKE_COMMAND} -E make_directory ${libxml2_install}/lib
++++    COMMAND
++++      ${CMAKE_COMMAND} -E copy ${libxml2_source}/win32/bin.msvc/libxml2_a.lib ${libxml2_install}/lib/libxml2.lib
++++  )
+++ else()
+++   set(libxml2_patch_command "")
+++   set(libxml2_config_command CONFIGURE_COMMAND ./configure
+++diff --git a/Libraries/cmake/External_STEPCode.cmake b/Libraries/cmake/External_STEPCode.cmake
+++index 9e354a083..29ed07202 100644
+++--- a/Libraries/cmake/External_STEPCode.cmake
++++++ b/Libraries/cmake/External_STEPCode.cmake
+++@@ -20,11 +20,15 @@ ENDIF()
+++ ExternalProject_Add( STEPCODE
+++ 	URL ${CMAKE_CURRENT_SOURCE_DIR}/stepcode-28350d91294b.zip
+++ 	DOWNLOAD_EXTRACT_TIMESTAMP TRUE
++++	PATCH_COMMAND
++++		${CMAKE_COMMAND} -DSTEP_SOURCE=<SOURCE_DIR>
++++		-P ${CMAKE_CURRENT_LIST_DIR}/PatchSTEPCodeForCMake4.cmake
+++ 	CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
++++		-DCMAKE_POLICY_VERSION_MINIMUM=3.5
+++ 		-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+++ 		-DCMAKE_CXX_FLAGS=${SC_CMAKE_CXX_FLAGS}
+++ 		-DCMAKE_C_FLAGS=${SC_CMAKE_C_FLAGS}
+++-		-DSC_BUILD_TYPE=Debug
++++		-DSC_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+++ 		-DSC_BUILD_SCHEMAS=ap203/ap203.exp
+++ 		-DSC_BUILD_STATIC_LIBS=ON
+++ 		-DSC_BUILD_SHARED_LIBS=${SC_SHARED}
+++@@ -44,7 +48,7 @@ ENDIF()
+++ SET( STEPCODE_BINARY_DIR ${BINARY_DIR} )
+++ 
+++ # SC CMake does not honor -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+++-# Consequently, force Debug so it installs in ../sc-install directory
+++-# instead of /usr/local/lib.
++++# Configure SC build type to match the parent build to avoid MSVC runtime
++++# mismatches when linking OpenVSP against stepcode libraries.
+++ #
+++ # SC's own programs fail to build with -DSC_BUILD_SHARED_LIBS=OFF
+++\ No newline at end of file
+++diff --git a/Libraries/cmake/PatchSTEPCodeForCMake4.cmake b/Libraries/cmake/PatchSTEPCodeForCMake4.cmake
+++new file mode 100644
+++index 000000000..70e9ae317
+++--- /dev/null
++++++ b/Libraries/cmake/PatchSTEPCodeForCMake4.cmake
+++@@ -0,0 +1,67 @@
++++# Patches extracted STEPCODE sources for CMake 4.x (invoked from External_STEPCode.cmake).
++++if(NOT DEFINED STEP_SOURCE)
++++  message(FATAL_ERROR "PatchSTEPCodeForCMake4.cmake requires -DSTEP_SOURCE=<path>")
++++endif()
++++
++++set(_main "${STEP_SOURCE}/CMakeLists.txt")
++++if(NOT EXISTS "${_main}")
++++  message(FATAL_ERROR "Missing ${_main}")
++++endif()
++++
++++file(READ "${_main}" _main_txt)
++++string(REPLACE
++++  [[cmake_minimum_required(VERSION 2.8.7)
++++if(COMMAND CMAKE_POLICY)
++++  CMAKE_POLICY(SET CMP0003 NEW)
++++  if ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
++++    CMAKE_POLICY(SET CMP0026 OLD)
++++  endif ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
++++endif(COMMAND CMAKE_POLICY)]]
++++  [[cmake_minimum_required(VERSION 3.5)
++++if(COMMAND CMAKE_POLICY)
++++  CMAKE_POLICY(SET CMP0003 NEW)
++++endif(COMMAND CMAKE_POLICY)]]
++++  _main_txt
++++  "${_main_txt}"
++++)
++++# Fallback if line endings differ (CRLF archives).
++++string(REPLACE
++++  [[cmake_minimum_required(VERSION 2.8.7)
++++if(COMMAND CMAKE_POLICY)
++++  CMAKE_POLICY(SET CMP0003 NEW)
++++  if ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
++++    CMAKE_POLICY(SET CMP0026 OLD)
++++  endif ("${CMAKE_VERSION}" VERSION_GREATER 2.99)
++++endif(COMMAND CMAKE_POLICY)]]
++++  [[cmake_minimum_required(VERSION 3.5)
++++if(COMMAND CMAKE_POLICY)
++++  CMAKE_POLICY(SET CMP0003 NEW)
++++endif(COMMAND CMAKE_POLICY)]]
++++  _main_txt
++++  "${_main_txt}"
++++)
++++file(WRITE "${_main}" "${_main_txt}")
++++
++++set(_scan "${STEP_SOURCE}/cmake/schema_scanner/CMakeLists.txt")
++++if(NOT EXISTS "${_scan}")
++++  message(FATAL_ERROR "Missing ${_scan}")
++++endif()
++++
++++file(READ "${_scan}" _scan_txt)
++++string(REPLACE
++++  [[project(SC_SUBPROJECT_SCHEMA_SCANNER)
++++cmake_minimum_required(VERSION 2.8.7)]]
++++  [[cmake_minimum_required(VERSION 3.5)
++++project(SC_SUBPROJECT_SCHEMA_SCANNER)]]
++++  _scan_txt
++++  "${_scan_txt}"
++++)
++++string(REPLACE
++++  [[project(SC_SUBPROJECT_SCHEMA_SCANNER)
++++cmake_minimum_required(VERSION 2.8.7)]]
++++  [[cmake_minimum_required(VERSION 3.5)
++++project(SC_SUBPROJECT_SCHEMA_SCANNER)]]
++++  _scan_txt
++++  "${_scan_txt}"
++++)
++++file(WRITE "${_scan}" "${_scan_txt}")
+++diff --git a/docs/win-build/WIN_BUILD.md b/docs/win-build/WIN_BUILD.md
+++new file mode 100644
+++index 000000000..3cc0e9c60
+++--- /dev/null
++++++ b/docs/win-build/WIN_BUILD.md
+++@@ -0,0 +1,80 @@
++++# Windows / CMake 4.x build layer (Bryan fork)
++++
++++OpenVSP upstream (`openvsp/openvsp` `main`) does not always build on current Windows
++++toolchains (CMake 4.x, VS 2022+) without small changes to **external library** CMake
++++scripts under `Libraries/cmake/`.
++++
++++This fork keeps those changes in a **single commit** on branch `bry/win-cmake`, replayed
++++on top of each upstream release via **rebase** (not merge).
++++
++++## Branch layout
++++
++++```
++++origin/main (Rob)  →  bry/win-cmake (+1 win-cmake commit)  →  dev_BryAI (your work)
++++```
++++
++++| Branch | Purpose |
++++|--------|---------|
++++| `origin/main` | Upstream OpenVSP releases (read-only) |
++++| `bry/win-cmake` | Exactly one commit: Windows/CMake external-lib fixes |
++++| `dev_BryAI` | Your feature work; rebase onto `bry/win-cmake` |
++++
++++## Files touched by the win-cmake commit
++++
++++- `Libraries/cmake/External_CodeEli.cmake` — `CMAKE_POLICY_VERSION_MINIMUM=3.5`
++++- `Libraries/cmake/External_GLEW.cmake` — same
++++- `Libraries/cmake/External_LibXml2.cmake` — MSVC path escaping; manual lib install
++++- `Libraries/cmake/External_STEPCode.cmake` — policy + build type; `PATCH_COMMAND`
++++- `Libraries/cmake/PatchSTEPCodeForCMake4.cmake` — STEPCODE CMake 4.x source patch
++++- `scripts/build-vsp.cmd` — build `vsp` with `vcvars64` from any shell
++++
++++Do **not** mix these edits into feature commits.
++++
++++## When Rob releases a new version
++++
++++From repo root (`OpenVSP/`):
++++
++++```powershell
++++.\scripts\win-build\rebase-on-upstream.ps1
++++```
++++
++++That fetches upstream, rebases `bry/win-cmake` onto `origin/main`, and reminds you to
++++rebase `dev_BryAI`. Resolve conflicts only in the files listed above.
++++
++++Then re-export the patch file (after a successful rebase):
++++
++++```powershell
++++.\scripts\win-build\export-patches.ps1
++++git add patches/win-cmake/
++++git commit -m "chore(win): refresh patch export after upstream rebase"
++++```
++++
++++## Fresh clone: apply without the branch
++++
++++```powershell
++++git fetch origin
++++git reset --hard origin/main
++++.\scripts\win-build\apply-patches.ps1
++++```
++++
++++Or: `git am patches/win-cmake/*.patch`
++++
++++## Build (after patches applied)
++++
++++```powershell
++++# Libraries (once per clean tree or after cmake script changes)
++++cmake -S Libraries -B VSP_Libraries_BryAI -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
++++cmake --build VSP_Libraries_BryAI -j 8
++++
++++# OpenVSP
++++cmake -S . -B VSP_Build_BryAI -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
++++  -DVSP_LIBRARY_PATH=F:/AirplaneTools/OpenVSPCode/OpenVSP/VSP_Libraries_BryAI -DVSP_NO_HELP=ON
++++.\scripts\build-vsp.cmd F:\AirplaneTools\OpenVSPCode\OpenVSP\VSP_Build_BryAI
++++```
++++
++++Adjust paths as needed. `build-vsp.cmd` runs `vcvars64` automatically.
++++
++++## Upstream overlap
++++
++++If Rob absorbs a fix upstream, **drop the duplicate hunk** from the win-cmake commit
++++during rebase rather than fighting to keep it.
+++diff --git a/patches/win-cmake/README.md b/patches/win-cmake/README.md
+++new file mode 100644
+++index 000000000..2af405f99
+++--- /dev/null
++++++ b/patches/win-cmake/README.md
+++@@ -0,0 +1,20 @@
++++# Windows build patches
++++
++++Mailbox patches exported from branch `bry/win-cmake` (one commit ahead of `origin/main`).
++++
++++## Regenerate
++++
++++```powershell
++++git checkout bry/win-cmake
++++.\scripts\win-build\rebase-on-upstream.ps1   # if upstream moved
++++.\scripts\win-build\export-patches.ps1
++++git add patches/win-cmake/
++++git commit -m "chore(win): refresh patch export"
++++```
++++
++++## Apply on a clean upstream tree
++++
++++```powershell
++++git reset --hard origin/main
++++.\scripts\win-build\apply-patches.ps1
++++```
+++diff --git a/scripts/build-vsp.cmd b/scripts/build-vsp.cmd
+++new file mode 100644
+++index 000000000..6d7956429
+++--- /dev/null
++++++ b/scripts/build-vsp.cmd
+++@@ -0,0 +1,46 @@
++++@echo off
++++setlocal EnableExtensions
++++
++++rem Builds vsp with MSVC stdlib on PATH (vcvars64). Use from any shell — no need
++++rem to start Cursor from "x64 Native Tools".
++++rem
++++rem   build-vsp.cmd
++++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI"
++++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI" Debug
++++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI" RelWithDebInfo vsp
++++
++++set "SCRIPT_DIR=%~dp0"
++++for %%I in ("%SCRIPT_DIR%..") do set "OPENVSP_ROOT=%%~fI"
++++
++++set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
++++if not exist "%VSWHERE%" (
++++  echo ERROR: vswhere not found: "%VSWHERE%"
++++  exit /b 1
++++)
++++
++++set "VSINSTALL="
++++for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%i"
++++
++++if not defined VSINSTALL (
++++  echo ERROR: No Visual Studio install with VC Tools ^(x86/x64^) found.
++++  exit /b 1
++++)
++++
++++set "VCVARS=%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
++++if not exist "%VCVARS%" (
++++  echo ERROR: vcvars64.bat not found: "%VCVARS%"
++++  exit /b 1
++++)
++++
++++set "BUILD_DIR=%~1"
++++if "%BUILD_DIR%"=="" set "BUILD_DIR=%OPENVSP_ROOT%\VSP_Build_BryAI"
++++
++++set "CFG=%~2"
++++if "%CFG%"=="" set "CFG=RelWithDebInfo"
++++
++++set "TGT=%~3"
++++if "%TGT%"=="" set "TGT=vsp"
++++
++++call "%VCVARS%" || exit /b 1
++++cmake --build "%BUILD_DIR%" --config "%CFG%" --target "%TGT%" -j 8
++++exit /b %ERRORLEVEL%
+++diff --git a/scripts/win-build/apply-patches.ps1 b/scripts/win-build/apply-patches.ps1
+++new file mode 100644
+++index 000000000..4b89bc18e
+++--- /dev/null
++++++ b/scripts/win-build/apply-patches.ps1
+++@@ -0,0 +1,34 @@
++++# Apply Windows/CMake patches on top of current HEAD (expected: origin/main).
++++# Usage: .\scripts\win-build\apply-patches.ps1
++++$ErrorActionPreference = "Stop"
++++
++++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++++$PatchDir = Join-Path $RepoRoot "patches\win-cmake"
++++
++++if (-not (Test-Path $PatchDir)) {
++++    Write-Error "Patch directory not found: $PatchDir`nRun export-patches.ps1 on branch bry/win-cmake first."
++++}
++++
++++$Patches = Get-ChildItem -Path $PatchDir -Filter "*.patch" | Sort-Object Name
++++if ($Patches.Count -eq 0) {
++++    Write-Error "No .patch files in $PatchDir"
++++}
++++
++++Push-Location $RepoRoot
++++try {
++++    foreach ($p in $Patches) {
++++        Write-Host "Applying $($p.Name) ..."
++++        git am $p.FullName
++++        if ($LASTEXITCODE -ne 0) {
++++            Write-Host ""
++++            Write-Host "git am failed. Fix conflicts, then: git add -A; git am --continue"
++++            Write-Host "Or abort: git am --abort"
++++            exit 1
++++        }
++++    }
++++    Write-Host "Patches applied. HEAD: $(git log -1 --oneline)"
++++}
++++finally {
++++    Pop-Location
++++}
+++diff --git a/scripts/win-build/export-patches.ps1 b/scripts/win-build/export-patches.ps1
+++new file mode 100644
+++index 000000000..72d361699
+++--- /dev/null
++++++ b/scripts/win-build/export-patches.ps1
+++@@ -0,0 +1,36 @@
++++# Export bry/win-cmake commit(s) as mailbox patches for offline apply.
++++# Usage: .\scripts\win-build\export-patches.ps1
++++# Run from branch bry/win-cmake after rebasing onto origin/main.
++++$ErrorActionPreference = "Stop"
++++
++++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++++$PatchDir = Join-Path $RepoRoot "patches\win-cmake"
++++
++++Push-Location $RepoRoot
++++try {
++++    $upstream = git merge-base HEAD origin/main
++++    if (-not $upstream) {
++++        Write-Error "Could not find merge-base with origin/main. Run: git fetch origin"
++++    }
++++
++++    $ahead = git rev-list --count "${upstream}..HEAD"
++++    if ([int]$ahead -eq 0) {
++++        Write-Error "HEAD has no commits ahead of origin/main. Nothing to export."
++++    }
++++
++++    if (-not (Test-Path $PatchDir)) {
++++        New-Item -ItemType Directory -Path $PatchDir | Out-Null
++++    }
++++
++++    Get-ChildItem -Path $PatchDir -Filter "*.patch" -ErrorAction SilentlyContinue | Remove-Item -Force
++++
++++    git format-patch origin/main -o $PatchDir --no-stat
++++    if ($LASTEXITCODE -ne 0) { exit 1 }
++++
++++    Write-Host "Exported $ahead patch(es) to $PatchDir"
++++    Get-ChildItem $PatchDir -Filter "*.patch" | ForEach-Object { Write-Host "  $($_.Name)" }
++++}
++++finally {
++++    Pop-Location
++++}
+++diff --git a/scripts/win-build/rebase-on-upstream.ps1 b/scripts/win-build/rebase-on-upstream.ps1
+++new file mode 100644
+++index 000000000..373995757
+++--- /dev/null
++++++ b/scripts/win-build/rebase-on-upstream.ps1
+++@@ -0,0 +1,45 @@
++++# Rebase bry/win-cmake onto latest upstream OpenVSP main.
++++# Usage: .\scripts\win-build\rebase-on-upstream.ps1
++++$ErrorActionPreference = "Stop"
++++
++++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++++
++++Push-Location $RepoRoot
++++try {
++++    Write-Host "Fetching origin (openvsp/openvsp) ..."
++++    git fetch origin
++++    if ($LASTEXITCODE -ne 0) { exit 1 }
++++
++++    $branch = git branch --show-current
++++    if ($branch -ne "bry/win-cmake") {
++++        Write-Host "Checking out bry/win-cmake ..."
++++        git checkout bry/win-cmake
++++    }
++++
++++    Write-Host "Rebasing onto origin/main ($(git log -1 --oneline origin/main)) ..."
++++    git rebase origin/main
++++    if ($LASTEXITCODE -ne 0) {
++++        Write-Host ""
++++        Write-Host "Rebase stopped. Typical conflict files:"
++++        Write-Host "  Libraries/cmake/External_*.cmake"
++++        Write-Host "  Libraries/cmake/PatchSTEPCodeForCMake4.cmake"
++++        Write-Host ""
++++        Write-Host "After fixing: git add -A; git rebase --continue"
++++        Write-Host "Or abort: git rebase --abort"
++++        exit 1
++++    }
++++
++++    Write-Host ""
++++    Write-Host "bry/win-cmake rebased: $(git log -1 --oneline)"
++++    Write-Host ""
++++    Write-Host "Next steps:"
++++    Write-Host "  1. Rebuild libraries + vsp to verify"
++++    Write-Host "  2. .\scripts\win-build\export-patches.ps1"
++++    Write-Host "  3. git push -f skyclmbr bry/win-cmake"
++++    Write-Host "  4. git checkout dev_BryAI; git rebase bry/win-cmake"
++++    Write-Host "  5. git push -f skyclmbr dev_BryAI"
++++}
++++finally {
++++    Pop-Location
++++}
+++-- 
+++2.54.0.windows.1
+++
++diff --git a/patches/win-cmake/README.md b/patches/win-cmake/README.md
++new file mode 100644
++index 000000000..2af405f99
++--- /dev/null
+++++ b/patches/win-cmake/README.md
++@@ -0,0 +1,20 @@
+++# Windows build patches
+++
+++Mailbox patches exported from branch `bry/win-cmake` (one commit ahead of `origin/main`).
+++
+++## Regenerate
+++
+++```powershell
+++git checkout bry/win-cmake
+++.\scripts\win-build\rebase-on-upstream.ps1   # if upstream moved
+++.\scripts\win-build\export-patches.ps1
+++git add patches/win-cmake/
+++git commit -m "chore(win): refresh patch export"
+++```
+++
+++## Apply on a clean upstream tree
+++
+++```powershell
+++git reset --hard origin/main
+++.\scripts\win-build\apply-patches.ps1
+++```
++diff --git a/scripts/build-vsp.cmd b/scripts/build-vsp.cmd
++new file mode 100644
++index 000000000..6d7956429
++--- /dev/null
+++++ b/scripts/build-vsp.cmd
++@@ -0,0 +1,46 @@
+++@echo off
+++setlocal EnableExtensions
+++
+++rem Builds vsp with MSVC stdlib on PATH (vcvars64). Use from any shell — no need
+++rem to start Cursor from "x64 Native Tools".
+++rem
+++rem   build-vsp.cmd
+++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI"
+++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI" Debug
+++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI" RelWithDebInfo vsp
+++
+++set "SCRIPT_DIR=%~dp0"
+++for %%I in ("%SCRIPT_DIR%..") do set "OPENVSP_ROOT=%%~fI"
+++
+++set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+++if not exist "%VSWHERE%" (
+++  echo ERROR: vswhere not found: "%VSWHERE%"
+++  exit /b 1
+++)
+++
+++set "VSINSTALL="
+++for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%i"
+++
+++if not defined VSINSTALL (
+++  echo ERROR: No Visual Studio install with VC Tools ^(x86/x64^) found.
+++  exit /b 1
+++)
+++
+++set "VCVARS=%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+++if not exist "%VCVARS%" (
+++  echo ERROR: vcvars64.bat not found: "%VCVARS%"
+++  exit /b 1
+++)
+++
+++set "BUILD_DIR=%~1"
+++if "%BUILD_DIR%"=="" set "BUILD_DIR=%OPENVSP_ROOT%\VSP_Build_BryAI"
+++
+++set "CFG=%~2"
+++if "%CFG%"=="" set "CFG=RelWithDebInfo"
+++
+++set "TGT=%~3"
+++if "%TGT%"=="" set "TGT=vsp"
+++
+++call "%VCVARS%" || exit /b 1
+++cmake --build "%BUILD_DIR%" --config "%CFG%" --target "%TGT%" -j 8
+++exit /b %ERRORLEVEL%
++diff --git a/scripts/win-build/apply-patches.ps1 b/scripts/win-build/apply-patches.ps1
++new file mode 100644
++index 000000000..4b89bc18e
++--- /dev/null
+++++ b/scripts/win-build/apply-patches.ps1
++@@ -0,0 +1,34 @@
+++# Apply Windows/CMake patches on top of current HEAD (expected: origin/main).
+++# Usage: .\scripts\win-build\apply-patches.ps1
+++$ErrorActionPreference = "Stop"
+++
+++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
+++$PatchDir = Join-Path $RepoRoot "patches\win-cmake"
+++
+++if (-not (Test-Path $PatchDir)) {
+++    Write-Error "Patch directory not found: $PatchDir`nRun export-patches.ps1 on branch bry/win-cmake first."
+++}
+++
+++$Patches = Get-ChildItem -Path $PatchDir -Filter "*.patch" | Sort-Object Name
+++if ($Patches.Count -eq 0) {
+++    Write-Error "No .patch files in $PatchDir"
+++}
+++
+++Push-Location $RepoRoot
+++try {
+++    foreach ($p in $Patches) {
+++        Write-Host "Applying $($p.Name) ..."
+++        git am $p.FullName
+++        if ($LASTEXITCODE -ne 0) {
+++            Write-Host ""
+++            Write-Host "git am failed. Fix conflicts, then: git add -A; git am --continue"
+++            Write-Host "Or abort: git am --abort"
+++            exit 1
+++        }
+++    }
+++    Write-Host "Patches applied. HEAD: $(git log -1 --oneline)"
+++}
+++finally {
+++    Pop-Location
+++}
++diff --git a/scripts/win-build/export-patches.ps1 b/scripts/win-build/export-patches.ps1
++new file mode 100644
++index 000000000..72d361699
++--- /dev/null
+++++ b/scripts/win-build/export-patches.ps1
++@@ -0,0 +1,36 @@
+++# Export bry/win-cmake commit(s) as mailbox patches for offline apply.
+++# Usage: .\scripts\win-build\export-patches.ps1
+++# Run from branch bry/win-cmake after rebasing onto origin/main.
+++$ErrorActionPreference = "Stop"
+++
+++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
+++$PatchDir = Join-Path $RepoRoot "patches\win-cmake"
+++
+++Push-Location $RepoRoot
+++try {
+++    $upstream = git merge-base HEAD origin/main
+++    if (-not $upstream) {
+++        Write-Error "Could not find merge-base with origin/main. Run: git fetch origin"
+++    }
+++
+++    $ahead = git rev-list --count "${upstream}..HEAD"
+++    if ([int]$ahead -eq 0) {
+++        Write-Error "HEAD has no commits ahead of origin/main. Nothing to export."
+++    }
+++
+++    if (-not (Test-Path $PatchDir)) {
+++        New-Item -ItemType Directory -Path $PatchDir | Out-Null
+++    }
+++
+++    Get-ChildItem -Path $PatchDir -Filter "*.patch" -ErrorAction SilentlyContinue | Remove-Item -Force
+++
+++    git format-patch origin/main -o $PatchDir --no-stat
+++    if ($LASTEXITCODE -ne 0) { exit 1 }
+++
+++    Write-Host "Exported $ahead patch(es) to $PatchDir"
+++    Get-ChildItem $PatchDir -Filter "*.patch" | ForEach-Object { Write-Host "  $($_.Name)" }
+++}
+++finally {
+++    Pop-Location
+++}
++diff --git a/scripts/win-build/rebase-on-upstream.ps1 b/scripts/win-build/rebase-on-upstream.ps1
++new file mode 100644
++index 000000000..373995757
++--- /dev/null
+++++ b/scripts/win-build/rebase-on-upstream.ps1
++@@ -0,0 +1,45 @@
+++# Rebase bry/win-cmake onto latest upstream OpenVSP main.
+++# Usage: .\scripts\win-build\rebase-on-upstream.ps1
+++$ErrorActionPreference = "Stop"
+++
+++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
+++
+++Push-Location $RepoRoot
+++try {
+++    Write-Host "Fetching origin (openvsp/openvsp) ..."
+++    git fetch origin
+++    if ($LASTEXITCODE -ne 0) { exit 1 }
+++
+++    $branch = git branch --show-current
+++    if ($branch -ne "bry/win-cmake") {
+++        Write-Host "Checking out bry/win-cmake ..."
+++        git checkout bry/win-cmake
+++    }
+++
+++    Write-Host "Rebasing onto origin/main ($(git log -1 --oneline origin/main)) ..."
+++    git rebase origin/main
+++    if ($LASTEXITCODE -ne 0) {
+++        Write-Host ""
+++        Write-Host "Rebase stopped. Typical conflict files:"
+++        Write-Host "  Libraries/cmake/External_*.cmake"
+++        Write-Host "  Libraries/cmake/PatchSTEPCodeForCMake4.cmake"
+++        Write-Host ""
+++        Write-Host "After fixing: git add -A; git rebase --continue"
+++        Write-Host "Or abort: git rebase --abort"
+++        exit 1
+++    }
+++
+++    Write-Host ""
+++    Write-Host "bry/win-cmake rebased: $(git log -1 --oneline)"
+++    Write-Host ""
+++    Write-Host "Next steps:"
+++    Write-Host "  1. Rebuild libraries + vsp to verify"
+++    Write-Host "  2. .\scripts\win-build\export-patches.ps1"
+++    Write-Host "  3. git push -f skyclmbr bry/win-cmake"
+++    Write-Host "  4. git checkout dev_BryAI; git rebase bry/win-cmake"
+++    Write-Host "  5. git push -f skyclmbr dev_BryAI"
+++}
+++finally {
+++    Pop-Location
+++}
++-- 
++2.54.0.windows.1
++
+diff --git a/patches/win-cmake/README.md b/patches/win-cmake/README.md
+new file mode 100644
+index 000000000..2af405f99
+--- /dev/null
++++ b/patches/win-cmake/README.md
+@@ -0,0 +1,20 @@
++# Windows build patches
++
++Mailbox patches exported from branch `bry/win-cmake` (one commit ahead of `origin/main`).
++
++## Regenerate
++
++```powershell
++git checkout bry/win-cmake
++.\scripts\win-build\rebase-on-upstream.ps1   # if upstream moved
++.\scripts\win-build\export-patches.ps1
++git add patches/win-cmake/
++git commit -m "chore(win): refresh patch export"
++```
++
++## Apply on a clean upstream tree
++
++```powershell
++git reset --hard origin/main
++.\scripts\win-build\apply-patches.ps1
++```
+diff --git a/scripts/build-vsp.cmd b/scripts/build-vsp.cmd
+new file mode 100644
+index 000000000..6d7956429
+--- /dev/null
++++ b/scripts/build-vsp.cmd
+@@ -0,0 +1,46 @@
++@echo off
++setlocal EnableExtensions
++
++rem Builds vsp with MSVC stdlib on PATH (vcvars64). Use from any shell — no need
++rem to start Cursor from "x64 Native Tools".
++rem
++rem   build-vsp.cmd
++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI"
++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI" Debug
++rem   build-vsp.cmd "F:\path\to\VSP_Build_BryAI" RelWithDebInfo vsp
++
++set "SCRIPT_DIR=%~dp0"
++for %%I in ("%SCRIPT_DIR%..") do set "OPENVSP_ROOT=%%~fI"
++
++set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
++if not exist "%VSWHERE%" (
++  echo ERROR: vswhere not found: "%VSWHERE%"
++  exit /b 1
++)
++
++set "VSINSTALL="
++for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%i"
++
++if not defined VSINSTALL (
++  echo ERROR: No Visual Studio install with VC Tools ^(x86/x64^) found.
++  exit /b 1
++)
++
++set "VCVARS=%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
++if not exist "%VCVARS%" (
++  echo ERROR: vcvars64.bat not found: "%VCVARS%"
++  exit /b 1
++)
++
++set "BUILD_DIR=%~1"
++if "%BUILD_DIR%"=="" set "BUILD_DIR=%OPENVSP_ROOT%\VSP_Build_BryAI"
++
++set "CFG=%~2"
++if "%CFG%"=="" set "CFG=RelWithDebInfo"
++
++set "TGT=%~3"
++if "%TGT%"=="" set "TGT=vsp"
++
++call "%VCVARS%" || exit /b 1
++cmake --build "%BUILD_DIR%" --config "%CFG%" --target "%TGT%" -j 8
++exit /b %ERRORLEVEL%
+diff --git a/scripts/win-build/apply-patches.ps1 b/scripts/win-build/apply-patches.ps1
+new file mode 100644
+index 000000000..4b89bc18e
+--- /dev/null
++++ b/scripts/win-build/apply-patches.ps1
+@@ -0,0 +1,34 @@
++# Apply Windows/CMake patches on top of current HEAD (expected: origin/main).
++# Usage: .\scripts\win-build\apply-patches.ps1
++$ErrorActionPreference = "Stop"
++
++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++$PatchDir = Join-Path $RepoRoot "patches\win-cmake"
++
++if (-not (Test-Path $PatchDir)) {
++    Write-Error "Patch directory not found: $PatchDir`nRun export-patches.ps1 on branch bry/win-cmake first."
++}
++
++$Patches = Get-ChildItem -Path $PatchDir -Filter "*.patch" | Sort-Object Name
++if ($Patches.Count -eq 0) {
++    Write-Error "No .patch files in $PatchDir"
++}
++
++Push-Location $RepoRoot
++try {
++    foreach ($p in $Patches) {
++        Write-Host "Applying $($p.Name) ..."
++        git am $p.FullName
++        if ($LASTEXITCODE -ne 0) {
++            Write-Host ""
++            Write-Host "git am failed. Fix conflicts, then: git add -A; git am --continue"
++            Write-Host "Or abort: git am --abort"
++            exit 1
++        }
++    }
++    Write-Host "Patches applied. HEAD: $(git log -1 --oneline)"
++}
++finally {
++    Pop-Location
++}
+diff --git a/scripts/win-build/export-patches.ps1 b/scripts/win-build/export-patches.ps1
+new file mode 100644
+index 000000000..72d361699
+--- /dev/null
++++ b/scripts/win-build/export-patches.ps1
+@@ -0,0 +1,36 @@
++# Export bry/win-cmake commit(s) as mailbox patches for offline apply.
++# Usage: .\scripts\win-build\export-patches.ps1
++# Run from branch bry/win-cmake after rebasing onto origin/main.
++$ErrorActionPreference = "Stop"
++
++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++$PatchDir = Join-Path $RepoRoot "patches\win-cmake"
++
++Push-Location $RepoRoot
++try {
++    $upstream = git merge-base HEAD origin/main
++    if (-not $upstream) {
++        Write-Error "Could not find merge-base with origin/main. Run: git fetch origin"
++    }
++
++    $ahead = git rev-list --count "${upstream}..HEAD"
++    if ([int]$ahead -eq 0) {
++        Write-Error "HEAD has no commits ahead of origin/main. Nothing to export."
++    }
++
++    if (-not (Test-Path $PatchDir)) {
++        New-Item -ItemType Directory -Path $PatchDir | Out-Null
++    }
++
++    Get-ChildItem -Path $PatchDir -Filter "*.patch" -ErrorAction SilentlyContinue | Remove-Item -Force
++
++    git format-patch origin/main -o $PatchDir --no-stat
++    if ($LASTEXITCODE -ne 0) { exit 1 }
++
++    Write-Host "Exported $ahead patch(es) to $PatchDir"
++    Get-ChildItem $PatchDir -Filter "*.patch" | ForEach-Object { Write-Host "  $($_.Name)" }
++}
++finally {
++    Pop-Location
++}
+diff --git a/scripts/win-build/rebase-on-upstream.ps1 b/scripts/win-build/rebase-on-upstream.ps1
+new file mode 100644
+index 000000000..373995757
+--- /dev/null
++++ b/scripts/win-build/rebase-on-upstream.ps1
+@@ -0,0 +1,45 @@
++# Rebase bry/win-cmake onto latest upstream OpenVSP main.
++# Usage: .\scripts\win-build\rebase-on-upstream.ps1
++$ErrorActionPreference = "Stop"
++
++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++
++Push-Location $RepoRoot
++try {
++    Write-Host "Fetching origin (openvsp/openvsp) ..."
++    git fetch origin
++    if ($LASTEXITCODE -ne 0) { exit 1 }
++
++    $branch = git branch --show-current
++    if ($branch -ne "bry/win-cmake") {
++        Write-Host "Checking out bry/win-cmake ..."
++        git checkout bry/win-cmake
++    }
++
++    Write-Host "Rebasing onto origin/main ($(git log -1 --oneline origin/main)) ..."
++    git rebase origin/main
++    if ($LASTEXITCODE -ne 0) {
++        Write-Host ""
++        Write-Host "Rebase stopped. Typical conflict files:"
++        Write-Host "  Libraries/cmake/External_*.cmake"
++        Write-Host "  Libraries/cmake/PatchSTEPCodeForCMake4.cmake"
++        Write-Host ""
++        Write-Host "After fixing: git add -A; git rebase --continue"
++        Write-Host "Or abort: git rebase --abort"
++        exit 1
++    }
++
++    Write-Host ""
++    Write-Host "bry/win-cmake rebased: $(git log -1 --oneline)"
++    Write-Host ""
++    Write-Host "Next steps:"
++    Write-Host "  1. Rebuild libraries + vsp to verify"
++    Write-Host "  2. .\scripts\win-build\export-patches.ps1"
++    Write-Host "  3. git push -f skyclmbr bry/win-cmake"
++    Write-Host "  4. git checkout dev_BryAI; git rebase bry/win-cmake"
++    Write-Host "  5. git push -f skyclmbr dev_BryAI"
++}
++finally {
++    Pop-Location
++}
+-- 
+2.54.0.windows.1
+
