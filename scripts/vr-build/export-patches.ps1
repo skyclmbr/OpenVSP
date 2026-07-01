@@ -8,7 +8,8 @@ $PatchDir = Join-Path $RepoRoot "patches\vr-build"
 
 Push-Location $RepoRoot
 try {
-    if (-not (git show-ref --verify --quiet refs/heads/bry/win-cmake)) {
+    git rev-parse --verify bry/win-cmake *> $null
+    if ($LASTEXITCODE -ne 0) {
         Write-Error "Branch bry/win-cmake not found."
     }
 
