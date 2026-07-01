@@ -34,6 +34,8 @@ Do **not** mix these edits into feature commits.
 
 ## When Rob releases a new version
 
+**Full step-by-step checklist:** `docs/UPSTREAM_RELEASE_RUNBOOK.md`
+
 From repo root (`OpenVSP/`):
 
 ```powershell
