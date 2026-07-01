@@ -10,14 +10,16 @@ on top of each upstream release via **rebase** (not merge).
 ## Branch layout
 
 ```
-origin/main (Rob)  →  bry/win-cmake (+1 win-cmake commit)  →  dev_BryAI (your work)
+origin/main (Rob)  →  bry/win-cmake (+1 win-cmake commit)  →  dev_BryAI (non-VR work)
+                                                      └──→  bryVR (VR commits)
 ```
 
 | Branch | Purpose |
 |--------|---------|
 | `origin/main` | Upstream OpenVSP releases (read-only) |
 | `bry/win-cmake` | Exactly one commit: Windows/CMake external-lib fixes |
-| `dev_BryAI` | Your feature work; rebase onto `bry/win-cmake` |
+| `dev_BryAI` | Non-VR feature work; rebase onto `bry/win-cmake` |
+| `bryVR` | VR work; rebase onto `bry/win-cmake` (see `docs/vr-build/VR_BUILD.md`) |
 
 ## Files touched by the win-cmake commit
 
