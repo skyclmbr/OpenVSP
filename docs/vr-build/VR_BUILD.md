@@ -31,6 +31,8 @@ Do **not** put Windows/CMake fixes in VR commits (stay on `bry/win-cmake`).
 
 ## When Rob releases a new version
 
+**Full step-by-step checklist:** `docs/UPSTREAM_RELEASE_RUNBOOK.md`
+
 **Step 1 — refresh Windows layer:**
 
 ```powershell
