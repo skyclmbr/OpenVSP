@@ -1,0 +1,30 @@
+From 82a309db9ffc2100fd49f4d820fd0952c284438b Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Thu, 30 Apr 2026 21:44:35 -0700
+Subject: [PATCH 02/23] fix(vr): reject --vr early when built without VSP_VR
+
+Made-with: Cursor
+
+diff --git a/src/vsp/main.cpp b/src/vsp/main.cpp
+index 3a73c8805..7e4ae0dd3 100644
+--- a/src/vsp/main.cpp
++++ b/src/vsp/main.cpp
+@@ -219,6 +219,15 @@ int main( int argc, char** argv )
+     {
+         return RunVRMode( argc, argv );
+     }
++#else
++    for ( int i = 1; i < argc; ++i )
++    {
++        if ( argv[i] && strcmp( argv[i], "--vr" ) == 0 )
++        {
++            fprintf( stderr, "[VSP_VR] VR mode requires a build configured with -DVSP_VR=ON (this binary was built without VR).\n" );
++            return 1;
++        }
++    }
+ #endif
+ 
+     // Set up MainThreadID if this is entry point.
+-- 
+2.54.0.windows.1
+

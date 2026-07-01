@@ -1,0 +1,164 @@
+From 2c238d0987fd0281207df6d01dfe7df6d1179a1e Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Sun, 3 May 2026 21:57:50 -0700
+Subject: [PATCH 22/23] feat(vr): geometry browser list in VR ImGui panel
+
+Populate the overlay with vsp::FindGeoms(), show type, display name, and id per row with parent-depth indent, selectable row and footer summary. Enlarge off-screen panel to 720x540.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/src/vr/VRImGuiOverlay.cpp b/src/vr/VRImGuiOverlay.cpp
+index 4dbce3921..15f611b29 100644
+--- a/src/vr/VRImGuiOverlay.cpp
++++ b/src/vr/VRImGuiOverlay.cpp
+@@ -7,6 +7,10 @@
+ 
+ #include <cstdio>
+ #include <cmath>
++#include <string>
++#include <vector>
++
++#include "VSP_Geom_API.h"
+ 
+ #include <GL/glew.h>
+ #include <glm/gtc/matrix_transform.hpp>
+@@ -55,6 +59,19 @@ static GLuint LinkProgram( GLuint vs, GLuint fs )
+     return p;
+ }
+ 
++static int GeomTreeDepth( const std::string &geomId )
++{
++    int depth = 0;
++    int guard = 0;
++    std::string p = vsp::GetGeomParent( geomId );
++    while ( !p.empty() && guard++ < 64 )
++    {
++        ++depth;
++        p = vsp::GetGeomParent( p );
++    }
++    return depth;
++}
++
+ } // namespace
+ 
+ VRImGuiOverlay::VRImGuiOverlay() = default;
+@@ -227,6 +244,7 @@ void VRImGuiOverlay::Shutdown()
+     m_ready = false;
+     m_fbW = 0;
+     m_fbH = 0;
++    m_selectedGeomId.clear();
+ }
+ 
+ void VRImGuiOverlay::NewFrame( float deltaTimeSeconds )
+@@ -248,8 +266,71 @@ void VRImGuiOverlay::NewFrame( float deltaTimeSeconds )
+ 
+     ImGui::Begin( "OpenVSP VR", nullptr,
+                   ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse );
+-    ImGui::TextUnformatted( "Phase 4 — ImGui panel (stub)." );
+-    ImGui::TextUnformatted( "Future: parameter panels and file controls." );
++
++    ImGui::TextUnformatted( "Geometry Browser" );
++    ImGui::Separator();
++
++    const float footerH = 52.0f;
++    const float listH = ImGui::GetContentRegionAvail().y - footerH;
++    ImGui::BeginChild( "geom_browser_list", ImVec2( 0.0f, listH ), ImGuiChildFlags_Border,
++                       ImGuiWindowFlags_None );
++
++    const std::vector<std::string> geoms = vsp::FindGeoms();
++    if ( geoms.empty() )
++    {
++        ImGui::TextDisabled( "(no geometry loaded)" );
++    }
++    else
++    {
++        for ( const std::string &gid : geoms )
++        {
++            const int depth = GeomTreeDepth( gid );
++            const std::string typeName = vsp::GetGeomTypeName( gid );
++            const std::string dispName = vsp::GetGeomName( gid );
++
++            std::string label = typeName;
++            label += "  |  ";
++            label += dispName;
++            label += "  |  ";
++            label += gid;
++
++            ImGui::PushID( gid.c_str() );
++            if ( depth > 0 )
++            {
++                ImGui::Indent( static_cast<float>( depth ) * 14.0f );
++            }
++
++            const bool isSelected = ( gid == m_selectedGeomId );
++            if ( ImGui::Selectable( label.c_str(), isSelected, ImGuiSelectableFlags_None ) )
++            {
++                m_selectedGeomId = gid;
++                fprintf( stderr, "[VSP_VR] Geom browser: selected %s (%s)\n", gid.c_str(), dispName.c_str() );
++            }
++
++            if ( depth > 0 )
++            {
++                ImGui::Unindent( static_cast<float>( depth ) * 14.0f );
++            }
++            ImGui::PopID();
++        }
++    }
++
++    ImGui::EndChild();
++
++    ImGui::Separator();
++    ImGui::TextUnformatted( "Selected:" );
++    if ( m_selectedGeomId.empty() )
++    {
++        ImGui::TextDisabled( "(none)" );
++    }
++    else
++    {
++        const std::string selType = vsp::GetGeomTypeName( m_selectedGeomId );
++        const std::string selName = vsp::GetGeomName( m_selectedGeomId );
++        const std::string selLine = selType + "  |  " + selName + "  |  " + m_selectedGeomId;
++        ImGui::TextWrapped( "%s", selLine.c_str() );
++    }
++
+     ImGui::End();
+ }
+ 
+diff --git a/src/vr/VRImGuiOverlay.h b/src/vr/VRImGuiOverlay.h
+index 38d98fc26..ab557f077 100644
+--- a/src/vr/VRImGuiOverlay.h
++++ b/src/vr/VRImGuiOverlay.h
+@@ -7,6 +7,7 @@
+ #define VRIMGUIOVERLAY_H
+ 
+ #include <glm/mat4x4.hpp>
++#include <string>
+ 
+ /// Phase 4: Dear ImGui rendered to an off-screen texture and drawn as a world-space quad in stage space.
+ class VRImGuiOverlay
+@@ -45,6 +46,9 @@ private:
+     unsigned int m_billboardVBO = 0;
+     unsigned int m_billboardProgram = 0;
+     int m_uBillboardMVP = -1;
++
++    /// Last geometry row clicked in the VR browser (OpenVSP geom id string).
++    std::string m_selectedGeomId;
+ };
+ 
+ #endif
+diff --git a/src/vr/VRManager.cpp b/src/vr/VRManager.cpp
+index 106d6c9bb..4ea4e0ef3 100644
+--- a/src/vr/VRManager.cpp
++++ b/src/vr/VRManager.cpp
+@@ -1164,7 +1164,7 @@ void main() {
+         if ( !imguiOverlay )
+         {
+             imguiOverlay = std::make_unique<VRImGuiOverlay>();
+-            if ( !imguiOverlay->Init( 640, 480 ) )
++            if ( !imguiOverlay->Init( 720, 540 ) )
+             {
+                 fprintf( stderr, "[VSP_VR] ImGui overlay init failed; continuing without UI panel.\n" );
+                 imguiOverlay.reset();
+-- 
+2.54.0.windows.1
+

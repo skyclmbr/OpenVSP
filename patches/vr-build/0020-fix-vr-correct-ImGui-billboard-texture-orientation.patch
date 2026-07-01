@@ -1,0 +1,27 @@
+From 633619bfcf28ad2ce3354d299136a031cf718080 Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Fri, 1 May 2026 16:14:38 -0700
+Subject: [PATCH 20/23] fix(vr): correct ImGui billboard texture orientation
+
+Flip both texture coordinates when sampling the off-screen ImGui FBO so panel text is not upside down or mirrored on the world-space quad.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/src/vr/VRImGuiOverlay.cpp b/src/vr/VRImGuiOverlay.cpp
+index 249f8ef9c..93ba931c6 100644
+--- a/src/vr/VRImGuiOverlay.cpp
++++ b/src/vr/VRImGuiOverlay.cpp
+@@ -131,7 +131,9 @@ in vec2 vUV;
+ out vec4 fragColor;
+ uniform sampler2D uTex;
+ void main() {
+-  fragColor = texture(uTex, vUV);
++  // ImGui FBO vs quad UVs: flip both axes so text reads correctly on the stage billboard.
++  vec2 uv = vec2(1.0 - vUV.x, 1.0 - vUV.y);
++  fragColor = texture(uTex, uv);
+ }
+ )GLSL";
+ 
+-- 
+2.54.0.windows.1
+

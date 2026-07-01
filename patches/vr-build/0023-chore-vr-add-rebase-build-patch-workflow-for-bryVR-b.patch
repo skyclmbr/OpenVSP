@@ -1,0 +1,357 @@
+From 1efe802ec9d930dcd5929191f85418c2f739c5c8 Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Wed, 1 Jul 2026 15:06:00 -0700
+Subject: [PATCH 23/23] chore(vr): add rebase/build/patch workflow for bryVR
+ branch
+
+Document VR branch layout (bry/win-cmake -> bryVR), scripts to rebase onto
+Rob releases, export/apply mailbox patches, and build with VSP_VR=ON.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/docs/vr-build/VR_BUILD.md b/docs/vr-build/VR_BUILD.md
+new file mode 100644
+index 000000000..bfd32e35e
+--- /dev/null
++++ b/docs/vr-build/VR_BUILD.md
+@@ -0,0 +1,94 @@
++# OpenVSP VR branch (Bryan fork)
++
++VR work lives on **`bryVR`**, rebased onto **`bry/win-cmake`** (which is rebased onto
++Rob's `origin/main`). No merges — linear history only.
++
++## Branch layout
++
++```
++origin/main (Rob)
++    → bry/win-cmake (+1 Windows/CMake commit)
++        → bryVR (+VR commits)
++```
++
++| Branch | Purpose |
++|--------|---------|
++| `origin/main` | Upstream OpenVSP |
++| `bry/win-cmake` | Windows compile layer (see `docs/win-build/WIN_BUILD.md`) |
++| `bryVR` | All VR implementation commits (`src/vr/`, OpenXR, `--vr`, etc.) |
++| `bryVR-legacy` | Backup of pre-rebase VR branch (local); safe to delete after verify |
++| `dev_BryAI` | Non-VR feature work; does not include VR |
++
++## VR touch list (expect conflicts here on rebase)
++
++- `src/CMakeLists.txt` — `VSP_VR` option, `add_subdirectory(vr)`
++- `src/vsp/CMakeLists.txt` — link `vsp_vr`
++- `src/vsp/main.cpp` — `--vr` dispatch
++- `src/cmake/FindOpenXR.cmake`
++- `src/vr/**` — entire VR module
++
++Do **not** put Windows/CMake fixes in VR commits (stay on `bry/win-cmake`).
++
++## When Rob releases a new version
++
++**Step 1 — refresh Windows layer:**
++
++```powershell
++.\scripts\win-build\rebase-on-upstream.ps1
++```
++
++**Step 2 — rebase VR onto updated win-cmake:**
++
++```powershell
++.\scripts\vr-build\rebase-on-upstream.ps1
++```
++
++Resolve conflicts in the VR touch list above, then:
++
++```powershell
++.\scripts\vr-build\export-patches.ps1
++git add patches/vr-build/
++git commit -m "chore(vr): refresh patch export after upstream rebase"
++git push -f skyclmbr bryVR
++```
++
++## Local VR build
++
++Prerequisites: libraries built (see `docs/win-build/WIN_BUILD.md`), OpenXR runtime
++(Meta Link, SteamVR, etc.).
++
++```powershell
++# Configure with VR enabled (separate build dir recommended)
++cmake -S . -B VSP_Build_VR -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
++  -DVSP_LIBRARY_PATH=F:/AirplaneTools/OpenVSPCode/OpenVSP/VSP_Libraries_BryAI `
++  -DVSP_NO_HELP=ON -DVSP_VR=ON
++
++.\scripts\vr-build\build-vr.ps1 F:\AirplaneTools\OpenVSPCode\OpenVSP\VSP_Build_VR
++
++# Run desktop (unchanged)
++.\VSP_Build_VR\src\vsp\vsp.exe
++
++# Run VR mode
++.\VSP_Build_VR\src\vsp\vsp.exe --vr
++```
++
++Or use `scripts\build-vsp.cmd` with a VR-configured build tree.
++
++## Fresh tree: apply VR without the branch
++
++After `bry/win-cmake` is in place (branch checkout or win patches applied):
++
++```powershell
++.\scripts\vr-build\apply-patches.ps1
++```
++
++## Commit hygiene
++
++- Keep VR commits focused (`feat(vr):`, `fix(vr):`, etc.).
++- Squash fixup commits locally before push if you prefer a shorter series.
++- Phase/milestone commits are fine to keep for bisect history.
++
++## Related docs
++
++- Windows/CMake layer: `docs/win-build/WIN_BUILD.md`
++- VR spec (design): `VR_integration/OpenVSP_VR_Spec_v2.md` (parent repo, if present)
+diff --git a/docs/win-build/WIN_BUILD.md b/docs/win-build/WIN_BUILD.md
+index 1f48d497b..c5cc2a00e 100644
+--- a/docs/win-build/WIN_BUILD.md
++++ b/docs/win-build/WIN_BUILD.md
+@@ -10,14 +10,16 @@ on top of each upstream release via **rebase** (not merge).
+ ## Branch layout
+ 
+ ```
+-origin/main (Rob)  →  bry/win-cmake (+1 win-cmake commit)  →  dev_BryAI (your work)
++origin/main (Rob)  →  bry/win-cmake (+1 win-cmake commit)  →  dev_BryAI (non-VR work)
++                                                      └──→  bryVR (VR commits)
+ ```
+ 
+ | Branch | Purpose |
+ |--------|---------|
+ | `origin/main` | Upstream OpenVSP releases (read-only) |
+ | `bry/win-cmake` | Exactly one commit: Windows/CMake external-lib fixes |
+-| `dev_BryAI` | Your feature work; rebase onto `bry/win-cmake` |
++| `dev_BryAI` | Non-VR feature work; rebase onto `bry/win-cmake` |
++| `bryVR` | VR work; rebase onto `bry/win-cmake` (see `docs/vr-build/VR_BUILD.md`) |
+ 
+ ## Files touched by the win-cmake commit
+ 
+diff --git a/patches/vr-build/README.md b/patches/vr-build/README.md
+new file mode 100644
+index 000000000..186603fad
+--- /dev/null
++++ b/patches/vr-build/README.md
+@@ -0,0 +1,25 @@
++# VR patches (series)
++
++Mailbox patches for all commits on **`bryVR`** that are ahead of **`bry/win-cmake`**.
++
++Requires the Windows layer first (`bry/win-cmake` branch or `patches/win-cmake/`).
++
++## Regenerate
++
++```powershell
++git checkout bryVR
++.\scripts\win-build\rebase-on-upstream.ps1    # if Rob released
++.\scripts\vr-build\rebase-on-upstream.ps1
++.\scripts\vr-build\export-patches.ps1
++git add patches/vr-build/
++git commit -m "chore(vr): refresh patch export"
++```
++
++## Apply (on top of win-cmake)
++
++```powershell
++git checkout bry/win-cmake
++.\scripts\vr-build\apply-patches.ps1
++```
++
++Or checkout branch `bryVR` directly.
+diff --git a/scripts/vr-build/apply-patches.ps1 b/scripts/vr-build/apply-patches.ps1
+new file mode 100644
+index 000000000..fbb5daf78
+--- /dev/null
++++ b/scripts/vr-build/apply-patches.ps1
+@@ -0,0 +1,34 @@
++# Apply VR mailbox patches on top of bry/win-cmake (current HEAD must include win layer).
++# Usage: .\scripts\vr-build\apply-patches.ps1
++$ErrorActionPreference = "Stop"
++
++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++$PatchDir = Join-Path $RepoRoot "patches\vr-build"
++
++if (-not (Test-Path $PatchDir)) {
++    Write-Error "Patch directory not found: $PatchDir`nRun export-patches.ps1 on branch bryVR first."
++}
++
++$Patches = Get-ChildItem -Path $PatchDir -Filter "*.patch" | Sort-Object Name
++if ($Patches.Count -eq 0) {
++    Write-Error "No .patch files in $PatchDir"
++}
++
++Push-Location $RepoRoot
++try {
++    foreach ($p in $Patches) {
++        Write-Host "Applying $($p.Name) ..."
++        git am $p.FullName
++        if ($LASTEXITCODE -ne 0) {
++            Write-Host ""
++            Write-Host "git am failed. Fix conflicts, then: git add -A; git am --continue"
++            Write-Host "Or abort: git am --abort"
++            exit 1
++        }
++    }
++    Write-Host "VR patches applied. HEAD: $(git log -1 --oneline)"
++}
++finally {
++    Pop-Location
++}
+diff --git a/scripts/vr-build/build-vr.cmd b/scripts/vr-build/build-vr.cmd
+new file mode 100644
+index 000000000..7ebcd585e
+--- /dev/null
++++ b/scripts/vr-build/build-vr.cmd
+@@ -0,0 +1,19 @@
++@echo off
++setlocal EnableExtensions
++
++rem Build vsp with VR enabled (VSP_VR=ON configure required).
++rem   build-vr.cmd
++rem   build-vr.cmd "F:\path\to\VSP_Build_VR"
++rem   build-vr.cmd "F:\path\to\VSP_Build_VR" RelWithDebInfo
++
++set "SCRIPT_DIR=%~dp0"
++for %%I in ("%SCRIPT_DIR%..\..") do set "OPENVSP_ROOT=%%~fI"
++
++set "BUILD_DIR=%~1"
++if "%BUILD_DIR%"=="" set "BUILD_DIR=%OPENVSP_ROOT%\VSP_Build_VR"
++
++set "CFG=%~2"
++if "%CFG%"=="" set "CFG=RelWithDebInfo"
++
++call "%OPENVSP_ROOT%\scripts\build-vsp.cmd" "%BUILD_DIR%" "%CFG%" vsp
++exit /b %ERRORLEVEL%
+diff --git a/scripts/vr-build/build-vr.ps1 b/scripts/vr-build/build-vr.ps1
+new file mode 100644
+index 000000000..54ba3f708
+--- /dev/null
++++ b/scripts/vr-build/build-vr.ps1
+@@ -0,0 +1,25 @@
++# Build vsp from a VR-enabled CMake build directory.
++param(
++    [string]$BuildDir = "",
++    [string]$Config = "RelWithDebInfo"
++)
++
++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++
++if ([string]::IsNullOrWhiteSpace($BuildDir)) {
++    $BuildDir = Join-Path $RepoRoot "VSP_Build_VR"
++}
++
++$cache = Join-Path $BuildDir "CMakeCache.txt"
++if (-not (Test-Path $cache)) {
++    Write-Error "Build dir not configured: $BuildDir`nRun cmake with -DVSP_VR=ON first (see docs/vr-build/VR_BUILD.md)."
++}
++
++$cacheText = Get-Content $cache -Raw
++if ($cacheText -notmatch "VSP_VR:BOOL=ON") {
++    Write-Warning "VSP_VR does not appear ON in $BuildDir. Reconfigure with -DVSP_VR=ON"
++}
++
++& (Join-Path $RepoRoot "scripts\build-vsp.cmd") $BuildDir $Config vsp
++exit $LASTEXITCODE
+diff --git a/scripts/vr-build/export-patches.ps1 b/scripts/vr-build/export-patches.ps1
+new file mode 100644
+index 000000000..4b2af917c
+--- /dev/null
++++ b/scripts/vr-build/export-patches.ps1
+@@ -0,0 +1,34 @@
++# Export bryVR commits (ahead of bry/win-cmake) as mailbox patches.
++# Usage: .\scripts\vr-build\export-patches.ps1
++$ErrorActionPreference = "Stop"
++
++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++$PatchDir = Join-Path $RepoRoot "patches\vr-build"
++
++Push-Location $RepoRoot
++try {
++    if (-not (git show-ref --verify --quiet refs/heads/bry/win-cmake)) {
++        Write-Error "Branch bry/win-cmake not found."
++    }
++
++    $ahead = git rev-list --count bry/win-cmake..HEAD
++    if ([int]$ahead -eq 0) {
++        Write-Error "No commits on current branch ahead of bry/win-cmake."
++    }
++
++    if (-not (Test-Path $PatchDir)) {
++        New-Item -ItemType Directory -Path $PatchDir | Out-Null
++    }
++
++    Get-ChildItem -Path $PatchDir -Filter "*.patch" -ErrorAction SilentlyContinue | Remove-Item -Force
++
++    git format-patch bry/win-cmake -o $PatchDir --no-stat
++    if ($LASTEXITCODE -ne 0) { exit 1 }
++
++    Write-Host "Exported $ahead VR patch(es) to $PatchDir"
++    Get-ChildItem $PatchDir -Filter "*.patch" | ForEach-Object { Write-Host "  $($_.Name)" }
++}
++finally {
++    Pop-Location
++}
+diff --git a/scripts/vr-build/rebase-on-upstream.ps1 b/scripts/vr-build/rebase-on-upstream.ps1
+new file mode 100644
+index 000000000..e474cc433
+--- /dev/null
++++ b/scripts/vr-build/rebase-on-upstream.ps1
+@@ -0,0 +1,47 @@
++# Rebase bryVR onto latest bry/win-cmake (after Rob release + win-cmake rebase).
++# Usage: .\scripts\vr-build\rebase-on-upstream.ps1
++$ErrorActionPreference = "Stop"
++
++$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
++$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
++
++Push-Location $RepoRoot
++try {
++    if (-not (git show-ref --verify --quiet refs/heads/bry/win-cmake)) {
++        Write-Error "Branch bry/win-cmake not found. Create it first (see docs/win-build/WIN_BUILD.md)."
++    }
++
++    $winAhead = git rev-list --count origin/main..bry/win-cmake 2>$null
++    if ([int]$winAhead -lt 1) {
++        Write-Warning "bry/win-cmake may not include win patches. Run .\scripts\win-build\rebase-on-upstream.ps1 first."
++    }
++
++    Write-Host "Checking out bryVR ..."
++    git checkout bryVR
++
++    Write-Host "Rebasing bryVR onto bry/win-cmake ($(git log -1 --oneline bry/win-cmake)) ..."
++    git rebase bry/win-cmake
++    if ($LASTEXITCODE -ne 0) {
++        Write-Host ""
++        Write-Host "Rebase stopped. Typical VR conflict files:"
++        Write-Host "  src/CMakeLists.txt, src/vsp/CMakeLists.txt, src/vsp/main.cpp"
++        Write-Host "  src/cmake/FindOpenXR.cmake, src/vr/**"
++        Write-Host ""
++        Write-Host "After fixing: git add -A; git rebase --continue"
++        Write-Host "Or abort: git rebase --abort"
++        exit 1
++    }
++
++    Write-Host ""
++    Write-Host "bryVR rebased: $(git log -1 --oneline)"
++    Write-Host "VR commits on stack: $(git rev-list --count bry/win-cmake..HEAD)"
++    Write-Host ""
++    Write-Host "Next steps:"
++    Write-Host "  1. Build: .\scripts\vr-build\build-vr.ps1 (or configure VSP_Build_VR manually)"
++    Write-Host "  2. .\scripts\vr-build\export-patches.ps1"
++    Write-Host "  3. git add patches/vr-build/; git commit -m 'chore(vr): refresh patch export'"
++    Write-Host "  4. git push -f skyclmbr bryVR"
++}
++finally {
++    Pop-Location
++}
+-- 
+2.54.0.windows.1
+
