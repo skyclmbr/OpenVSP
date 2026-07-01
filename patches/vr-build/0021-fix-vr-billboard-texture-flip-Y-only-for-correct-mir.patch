@@ -1,0 +1,28 @@
+From 692fe9f5b1f7b1c806f407ad124943ce0d28ccba Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Fri, 1 May 2026 16:16:51 -0700
+Subject: [PATCH 21/23] fix(vr): billboard texture flip Y only for correct
+ mirroring
+
+Sample ImGui FBO with vertical flip only so panel text stays upright without left-right reversal.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/src/vr/VRImGuiOverlay.cpp b/src/vr/VRImGuiOverlay.cpp
+index 93ba931c6..4dbce3921 100644
+--- a/src/vr/VRImGuiOverlay.cpp
++++ b/src/vr/VRImGuiOverlay.cpp
+@@ -131,8 +131,8 @@ in vec2 vUV;
+ out vec4 fragColor;
+ uniform sampler2D uTex;
+ void main() {
+-  // ImGui FBO vs quad UVs: flip both axes so text reads correctly on the stage billboard.
+-  vec2 uv = vec2(1.0 - vUV.x, 1.0 - vUV.y);
++  // ImGui FBO is top-down vs GL texture convention; flip V only. U matches quad winding.
++  vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
+   fragColor = texture(uTex, uv);
+ }
+ )GLSL";
+-- 
+2.54.0.windows.1
+

@@ -1,0 +1,901 @@
+From c35ecd61258ad47608294be0498ea4f9eec130a2 Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Fri, 1 May 2026 13:02:33 -0700
+Subject: [PATCH 09/23] feat(vr): add phase3 interaction and render parity
+ fixes
+
+Add controller grab interactions with filtering, improve VR shading with VSP normals and depth occlusion, and tighten draw-style handling so mirrored geometry and shaded visibility behave consistently in-headset.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/src/vr/VRManager.cpp b/src/vr/VRManager.cpp
+index a6bdf6414..26fc669fb 100644
+--- a/src/vr/VRManager.cpp
++++ b/src/vr/VRManager.cpp
+@@ -6,6 +6,7 @@
+ #include "VRManager.h"
+ 
+ #include <algorithm>
++#include <cctype>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstring>
+@@ -156,10 +157,52 @@ struct VRManager::Impl
+     XrExtent2Df playAreaBounds{ 2.0f, 2.0f };
+     bool cachedModelValid = false;
+     std::vector<float> cachedModelVerts;
++    std::vector<float> cachedModelNorms;
++    std::vector<float> cachedWireVerts;
++    std::vector<float> cachedWireColors;
++    float cachedModelAlpha = 1.0f;
+     bool cachedModelBoundsValid = false;
+     glm::vec3 cachedModelMin = glm::vec3( 0.0f );
+     glm::vec3 cachedModelMax = glm::vec3( 0.0f );
+     glm::vec3 modelLocalOffset = glm::vec3( 0.0f );
++    glm::vec3 modelTranslation = glm::vec3( 0.0f, 0.94f, -1.2f );
++    glm::quat modelRotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
++    float modelScale = 1.0f;
++    bool yLock = false;
++
++    XrActionSet actionSet = XR_NULL_HANDLE;
++    XrAction gripPoseAction = XR_NULL_HANDLE;
++    XrAction squeezeAction = XR_NULL_HANDLE;
++    XrAction triggerAction = XR_NULL_HANDLE;
++    XrPath leftHandPath = XR_NULL_PATH;
++    XrPath rightHandPath = XR_NULL_PATH;
++    XrSpace leftGripSpace = XR_NULL_HANDLE;
++    XrSpace rightGripSpace = XR_NULL_HANDLE;
++
++    struct HandPoseState
++    {
++        bool valid = false;
++        glm::vec3 pos = glm::vec3( 0.0f );
++        glm::quat rot = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
++        glm::vec3 filteredPos = glm::vec3( 0.0f );
++        glm::quat filteredRot = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
++        bool filterInitialized = false;
++        float squeeze = 0.0f;
++    } hands[2];
++
++    bool singleGrabActive = false;
++    int singleGrabHand = -1;
++    glm::vec3 singleGrabStartPos = glm::vec3( 0.0f );
++    glm::quat singleGrabStartRot = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
++    glm::vec3 singleGrabBaseTranslation = glm::vec3( 0.0f );
++    glm::quat singleGrabBaseRotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
++
++    bool twoGrabActive = false;
++    float twoGrabInitialSpan = 1.0f;
++    glm::vec3 twoGrabInitialMidpoint = glm::vec3( 0.0f );
++    glm::vec3 twoGrabBaseTranslation = glm::vec3( 0.0f );
++    float twoGrabBaseScale = 1.0f;
++    int inputLogCounter = 0;
+ 
+     struct EyeSwap
+     {
+@@ -168,6 +211,7 @@ struct VRManager::Impl
+         int32_t h = 0;
+         std::vector<XrSwapchainImageOpenGLKHR> swapImages;
+         std::vector<GLuint> fbos;
++        std::vector<GLuint> depthRbos;
+     };
+     EyeSwap eyes[2];
+     bool swapchainsCreated = false;
+@@ -176,7 +220,10 @@ struct VRManager::Impl
+     GLuint triVBO = 0;
+     GLuint program = 0;
+     GLint uMVP = -1;
++    GLint uModel = -1;
+     GLint uColor = -1;
++    GLint uAlpha = -1;
++    GLint uLightDir = -1;
+ 
+     bool CreateInstance()
+     {
+@@ -345,11 +392,337 @@ struct VRManager::Impl
+         // Keep object in front of the user; lift ~3 ft for easier debugging views.
+         demoAnchorPos = glm::vec3( 0.0f, 0.94f, -1.2f );
+         demoAnchorValid = true;
++        modelTranslation = demoAnchorPos;
++        modelRotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
++        modelScale = demoScale;
+         fprintf( stderr, "[VSP_VR] Placed demo: scale=%.3f at (%.2f, %.2f, %.2f)%s\n",
+                  demoScale, demoAnchorPos.x, demoAnchorPos.y, demoAnchorPos.z,
+                  boundsUsedFallback ? " [fallback bounds]" : "" );
+     }
+ 
++    bool CreateInputActions()
++    {
++        xrStringToPath( instance, "/user/hand/left", &leftHandPath );
++        xrStringToPath( instance, "/user/hand/right", &rightHandPath );
++
++        XrActionSetCreateInfo asci{ XR_TYPE_ACTION_SET_CREATE_INFO };
++        strncpy( asci.actionSetName, "vspvr_input", XR_MAX_ACTION_SET_NAME_SIZE );
++        strncpy( asci.localizedActionSetName, "OpenVSP VR Input", XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE );
++        asci.priority = 0;
++        XrResult r = xrCreateActionSet( instance, &asci, &actionSet );
++        if ( XR_FAILED( r ) )
++        {
++            PrintXrError( "xrCreateActionSet", r );
++            return false;
++        }
++
++        XrActionCreateInfo aci{ XR_TYPE_ACTION_CREATE_INFO };
++        aci.actionType = XR_ACTION_TYPE_POSE_INPUT;
++        strncpy( aci.actionName, "grip_pose", XR_MAX_ACTION_NAME_SIZE );
++        strncpy( aci.localizedActionName, "Grip Pose", XR_MAX_LOCALIZED_ACTION_NAME_SIZE );
++        XrPath handSubactions[2] = { leftHandPath, rightHandPath };
++        aci.countSubactionPaths = 2;
++        aci.subactionPaths = handSubactions;
++        r = xrCreateAction( actionSet, &aci, &gripPoseAction );
++        if ( XR_FAILED( r ) )
++        {
++            PrintXrError( "xrCreateAction(grip_pose)", r );
++            return false;
++        }
++
++        XrActionCreateInfo sci{ XR_TYPE_ACTION_CREATE_INFO };
++        sci.actionType = XR_ACTION_TYPE_FLOAT_INPUT;
++        strncpy( sci.actionName, "squeeze", XR_MAX_ACTION_NAME_SIZE );
++        strncpy( sci.localizedActionName, "Squeeze", XR_MAX_LOCALIZED_ACTION_NAME_SIZE );
++        sci.countSubactionPaths = 2;
++        sci.subactionPaths = handSubactions;
++        r = xrCreateAction( actionSet, &sci, &squeezeAction );
++        if ( XR_FAILED( r ) )
++        {
++            PrintXrError( "xrCreateAction(squeeze)", r );
++            return false;
++        }
++
++        XrActionCreateInfo tci{ XR_TYPE_ACTION_CREATE_INFO };
++        tci.actionType = XR_ACTION_TYPE_FLOAT_INPUT;
++        strncpy( tci.actionName, "trigger", XR_MAX_ACTION_NAME_SIZE );
++        strncpy( tci.localizedActionName, "Trigger", XR_MAX_LOCALIZED_ACTION_NAME_SIZE );
++        tci.countSubactionPaths = 2;
++        tci.subactionPaths = handSubactions;
++        r = xrCreateAction( actionSet, &tci, &triggerAction );
++        if ( XR_FAILED( r ) )
++        {
++            PrintXrError( "xrCreateAction(trigger)", r );
++            return false;
++        }
++
++        XrPath simpleProfile = XR_NULL_PATH;
++        XrPath touchProfile = XR_NULL_PATH;
++        XrPath leftGrip = XR_NULL_PATH, rightGrip = XR_NULL_PATH;
++        XrPath leftAim = XR_NULL_PATH, rightAim = XR_NULL_PATH;
++        XrPath leftSelect = XR_NULL_PATH, rightSelect = XR_NULL_PATH;
++        XrPath leftSqueezeValue = XR_NULL_PATH, rightSqueezeValue = XR_NULL_PATH;
++        XrPath leftTriggerValue = XR_NULL_PATH, rightTriggerValue = XR_NULL_PATH;
++        xrStringToPath( instance, "/interaction_profiles/khr/simple_controller", &simpleProfile );
++        xrStringToPath( instance, "/interaction_profiles/oculus/touch_controller", &touchProfile );
++        xrStringToPath( instance, "/user/hand/left/input/grip/pose", &leftGrip );
++        xrStringToPath( instance, "/user/hand/right/input/grip/pose", &rightGrip );
++        xrStringToPath( instance, "/user/hand/left/input/aim/pose", &leftAim );
++        xrStringToPath( instance, "/user/hand/right/input/aim/pose", &rightAim );
++        xrStringToPath( instance, "/user/hand/left/input/select/value", &leftSelect );   // Simple profile fallback.
++        xrStringToPath( instance, "/user/hand/right/input/select/value", &rightSelect );
++        xrStringToPath( instance, "/user/hand/left/input/squeeze/value", &leftSqueezeValue ); // Touch grip analog.
++        xrStringToPath( instance, "/user/hand/right/input/squeeze/value", &rightSqueezeValue );
++        xrStringToPath( instance, "/user/hand/left/input/trigger/value", &leftTriggerValue );
++        xrStringToPath( instance, "/user/hand/right/input/trigger/value", &rightTriggerValue );
++
++        XrActionSuggestedBinding simpleBinds[5] = {
++            { gripPoseAction, leftGrip },
++            { gripPoseAction, rightGrip },
++            { gripPoseAction, leftAim },
++            { squeezeAction, leftSelect },
++            { squeezeAction, rightSelect }
++        };
++        XrInteractionProfileSuggestedBinding simpleSb{ XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
++        simpleSb.interactionProfile = simpleProfile;
++        simpleSb.countSuggestedBindings = 5;
++        simpleSb.suggestedBindings = simpleBinds;
++        xrSuggestInteractionProfileBindings( instance, &simpleSb );
++
++        XrActionSuggestedBinding touchBinds[8] = {
++            { gripPoseAction, leftGrip },
++            { gripPoseAction, rightGrip },
++            { gripPoseAction, leftAim },
++            { gripPoseAction, rightAim },
++            { squeezeAction, leftSqueezeValue },
++            { squeezeAction, rightSqueezeValue },
++            { triggerAction, leftTriggerValue },
++            { triggerAction, rightTriggerValue }
++        };
++        XrInteractionProfileSuggestedBinding touchSb{ XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
++        touchSb.interactionProfile = touchProfile;
++        touchSb.countSuggestedBindings = 8;
++        touchSb.suggestedBindings = touchBinds;
++        xrSuggestInteractionProfileBindings( instance, &touchSb );
++
++        XrSessionActionSetsAttachInfo attach{ XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
++        attach.countActionSets = 1;
++        attach.actionSets = &actionSet;
++        r = xrAttachSessionActionSets( session, &attach );
++        if ( XR_FAILED( r ) )
++        {
++            PrintXrError( "xrAttachSessionActionSets", r );
++            return false;
++        }
++
++        XrActionSpaceCreateInfo ls{ XR_TYPE_ACTION_SPACE_CREATE_INFO };
++        ls.action = gripPoseAction;
++        ls.subactionPath = leftHandPath;
++        ls.poseInActionSpace.orientation.w = 1.0f;
++        r = xrCreateActionSpace( session, &ls, &leftGripSpace );
++        if ( XR_FAILED( r ) )
++        {
++            PrintXrError( "xrCreateActionSpace(left)", r );
++            return false;
++        }
++
++        XrActionSpaceCreateInfo rs{ XR_TYPE_ACTION_SPACE_CREATE_INFO };
++        rs.action = gripPoseAction;
++        rs.subactionPath = rightHandPath;
++        rs.poseInActionSpace.orientation.w = 1.0f;
++        r = xrCreateActionSpace( session, &rs, &rightGripSpace );
++        if ( XR_FAILED( r ) )
++        {
++            PrintXrError( "xrCreateActionSpace(right)", r );
++            return false;
++        }
++        return true;
++    }
++
++    void ResetInteractionState()
++    {
++        singleGrabActive = false;
++        twoGrabActive = false;
++        singleGrabHand = -1;
++    }
++
++    void UpdateHandState( int handIdx, XrSpace handSpace, XrTime displayTime )
++    {
++        hands[handIdx].valid = false;
++
++        XrActionStateGetInfo gi{ XR_TYPE_ACTION_STATE_GET_INFO };
++        gi.action = squeezeAction;
++        gi.subactionPath = ( handIdx == 0 ) ? leftHandPath : rightHandPath;
++        XrActionStateFloat sf{ XR_TYPE_ACTION_STATE_FLOAT };
++        xrGetActionStateFloat( session, &gi, &sf );
++        hands[handIdx].squeeze = sf.currentState;
++
++        XrActionStateGetInfo ti{ XR_TYPE_ACTION_STATE_GET_INFO };
++        ti.action = triggerAction;
++        ti.subactionPath = ( handIdx == 0 ) ? leftHandPath : rightHandPath;
++        XrActionStateFloat tf{ XR_TYPE_ACTION_STATE_FLOAT };
++        xrGetActionStateFloat( session, &ti, &tf );
++        hands[handIdx].squeeze = std::max( hands[handIdx].squeeze, tf.currentState );
++
++        XrSpaceLocation loc{ XR_TYPE_SPACE_LOCATION };
++        XrResult r = xrLocateSpace( handSpace, stageSpace, displayTime, &loc );
++        if ( XR_FAILED( r ) )
++        {
++            return;
++        }
++        const XrSpaceLocationFlags need =
++            XR_SPACE_LOCATION_POSITION_VALID_BIT |
++            XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
++        if ( ( loc.locationFlags & need ) != need )
++        {
++            return;
++        }
++        hands[handIdx].valid = true;
++        hands[handIdx].pos = glm::vec3( loc.pose.position.x, loc.pose.position.y, loc.pose.position.z );
++        hands[handIdx].rot = glm::normalize( glm::quat( loc.pose.orientation.w, loc.pose.orientation.x,
++                                                        loc.pose.orientation.y, loc.pose.orientation.z ) );
++
++        // Lightweight filtering to reduce controller micro-jitter while preserving responsiveness.
++        constexpr float kPosAlpha = 0.25f;
++        constexpr float kRotAlpha = 0.22f;
++        if ( !hands[handIdx].filterInitialized )
++        {
++            hands[handIdx].filteredPos = hands[handIdx].pos;
++            hands[handIdx].filteredRot = hands[handIdx].rot;
++            hands[handIdx].filterInitialized = true;
++        }
++        else
++        {
++            hands[handIdx].filteredPos = glm::mix( hands[handIdx].filteredPos, hands[handIdx].pos, kPosAlpha );
++            hands[handIdx].filteredRot = glm::normalize( glm::slerp( hands[handIdx].filteredRot, hands[handIdx].rot, kRotAlpha ) );
++        }
++    }
++
++    void UpdateInteraction( XrTime displayTime )
++    {
++        if ( actionSet == XR_NULL_HANDLE )
++        {
++            return;
++        }
++
++        XrActiveActionSet active{ actionSet, XR_NULL_PATH };
++        XrActionsSyncInfo sync{ XR_TYPE_ACTIONS_SYNC_INFO };
++        sync.countActiveActionSets = 1;
++        sync.activeActionSets = &active;
++        xrSyncActions( session, &sync );
++
++        UpdateHandState( 0, leftGripSpace, displayTime );
++        UpdateHandState( 1, rightGripSpace, displayTime );
++
++        if ( ( ++inputLogCounter % 180 ) == 0 )
++        {
++            fprintf( stderr, "[VSP_VR] input L(valid=%d sq=%.2f) R(valid=%d sq=%.2f)\n",
++                     hands[0].valid ? 1 : 0, hands[0].squeeze,
++                     hands[1].valid ? 1 : 0, hands[1].squeeze );
++        }
++
++        const bool leftGrab = hands[0].valid && hands[0].squeeze > 0.85f;
++        const bool rightGrab = hands[1].valid && hands[1].squeeze > 0.85f;
++
++        if ( leftGrab && rightGrab )
++        {
++            if ( !twoGrabActive )
++            {
++                twoGrabActive = true;
++                singleGrabActive = false;
++                const glm::vec3 d = hands[1].filteredPos - hands[0].filteredPos;
++                twoGrabInitialSpan = std::max( 0.01f, glm::length( d ) );
++                twoGrabInitialMidpoint = 0.5f * ( hands[0].filteredPos + hands[1].filteredPos );
++                twoGrabBaseTranslation = modelTranslation;
++                twoGrabBaseScale = modelScale;
++            }
++            const glm::vec3 d = hands[1].filteredPos - hands[0].filteredPos;
++            const float currentSpan = std::max( 0.01f, glm::length( d ) );
++            const float scaleFactor = currentSpan / std::max( 0.01f, twoGrabInitialSpan );
++            modelScale = std::clamp( twoGrabBaseScale * scaleFactor, 0.01f, 50.0f );
++
++            const glm::vec3 midpoint = 0.5f * ( hands[0].filteredPos + hands[1].filteredPos );
++            glm::vec3 midDelta = midpoint - twoGrabInitialMidpoint;
++            if ( glm::length( midDelta ) < 0.004f )
++            {
++                midDelta = glm::vec3( 0.0f );
++            }
++            if ( yLock )
++            {
++                modelTranslation.x = twoGrabBaseTranslation.x + midDelta.x * scaleFactor;
++                modelTranslation.z = twoGrabBaseTranslation.z + midDelta.z * scaleFactor;
++            }
++            else
++            {
++                modelTranslation = twoGrabBaseTranslation + midDelta * scaleFactor;
++            }
++            return;
++        }
++        else
++        {
++            twoGrabActive = false;
++        }
++
++        int activeHand = -1;
++        if ( leftGrab )
++        {
++            activeHand = 0;
++        }
++        else if ( rightGrab )
++        {
++            activeHand = 1;
++        }
++
++        if ( activeHand >= 0 )
++        {
++            if ( !singleGrabActive || singleGrabHand != activeHand )
++            {
++                singleGrabActive = true;
++                singleGrabHand = activeHand;
++                singleGrabStartPos = hands[activeHand].filteredPos;
++                singleGrabStartRot = hands[activeHand].filteredRot;
++                singleGrabBaseTranslation = modelTranslation;
++                singleGrabBaseRotation = modelRotation;
++            }
++
++            glm::vec3 deltaPos = hands[activeHand].filteredPos - singleGrabStartPos;
++            if ( glm::length( deltaPos ) < 0.003f )
++            {
++                deltaPos = glm::vec3( 0.0f );
++            }
++            const glm::quat deltaRot = glm::normalize( hands[activeHand].filteredRot * glm::inverse( singleGrabStartRot ) );
++
++            if ( yLock )
++            {
++                modelTranslation.x = singleGrabBaseTranslation.x + deltaPos.x;
++                modelTranslation.z = singleGrabBaseTranslation.z + deltaPos.z;
++
++                const float yaw = atan2f( 2.0f * ( deltaRot.w * deltaRot.y + deltaRot.x * deltaRot.z ),
++                                          1.0f - 2.0f * ( deltaRot.y * deltaRot.y + deltaRot.z * deltaRot.z ) );
++                const float yawFiltered = ( std::abs( yaw ) < 0.012f ) ? 0.0f : yaw;
++                const glm::quat yawOnly = glm::angleAxis( yawFiltered, glm::vec3( 0.0f, 1.0f, 0.0f ) );
++                modelRotation = glm::normalize( yawOnly * singleGrabBaseRotation );
++            }
++            else
++            {
++                const float w = std::clamp( deltaRot.w, -1.0f, 1.0f );
++                const float ang = 2.0f * acosf( w );
++                glm::quat appliedRot = deltaRot;
++                if ( ang < 0.012f )
++                {
++                    appliedRot = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
++                }
++                modelTranslation = singleGrabBaseTranslation + deltaPos;
++                modelRotation = glm::normalize( appliedRot * singleGrabBaseRotation );
++            }
++        }
++        else
++        {
++            singleGrabActive = false;
++            singleGrabHand = -1;
++        }
++    }
++
+     void DestroySwapchains()
+     {
+         for ( int e = 0; e < 2; ++e )
+@@ -362,6 +735,14 @@ struct VRManager::Impl
+                 }
+             }
+             eyes[e].fbos.clear();
++            for ( GLuint rbo : eyes[e].depthRbos )
++            {
++                if ( rbo )
++                {
++                    glDeleteRenderbuffers( 1, &rbo );
++                }
++            }
++            eyes[e].depthRbos.clear();
+             eyes[e].swapImages.clear();
+             if ( eyes[e].swapchain != XR_NULL_HANDLE )
+             {
+@@ -445,11 +826,16 @@ struct VRManager::Impl
+                                         reinterpret_cast<XrSwapchainImageBaseHeader *>( eyes[e].swapImages.data() ) );
+ 
+             eyes[e].fbos.resize( imgCount );
++            eyes[e].depthRbos.resize( imgCount );
+             glGenFramebuffers( imgCount, eyes[e].fbos.data() );
++            glGenRenderbuffers( imgCount, eyes[e].depthRbos.data() );
+             for ( uint32_t i = 0; i < imgCount; ++i )
+             {
+                 glBindFramebuffer( GL_FRAMEBUFFER, eyes[e].fbos[i] );
+                 glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, eyes[e].swapImages[i].image, 0 );
++                glBindRenderbuffer( GL_RENDERBUFFER, eyes[e].depthRbos[i] );
++                glRenderbufferStorage( GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, eyes[e].w, eyes[e].h );
++                glFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, eyes[e].depthRbos[i] );
+                 GLenum st = glCheckFramebufferStatus( GL_FRAMEBUFFER );
+                 if ( st != GL_FRAMEBUFFER_COMPLETE )
+                 {
+@@ -475,9 +861,16 @@ struct VRManager::Impl
+         const char *vsSrc = R"GLSL(
+ #version 330 core
+ layout(location = 0) in vec3 aPos;
++layout(location = 1) in vec3 aNorm;
++layout(location = 2) in vec3 aColor;
+ uniform mat4 uMVP;
++uniform mat4 uModel;
++out vec3 vNorm;
++out vec3 vColor;
+ void main() {
+   gl_Position = uMVP * vec4(aPos, 1.0);
++  vNorm = mat3(uModel) * aNorm;
++  vColor = aColor;
+ }
+ )GLSL";
+ 
+@@ -485,8 +878,15 @@ void main() {
+ #version 330 core
+ out vec4 fragColor;
+ uniform vec3 uColor;
++uniform float uAlpha;
++uniform vec3 uLightDir;
++in vec3 vNorm;
++in vec3 vColor;
+ void main() {
+-  fragColor = vec4(uColor, 1.0);
++  vec3 n = normalize(vNorm);
++  float ndl = max(dot(n, normalize(uLightDir)), 0.0);
++  float lit = 0.25 + 0.75 * ndl;
++  fragColor = vec4(vColor * lit, uAlpha);
+ }
+ )GLSL";
+ 
+@@ -504,7 +904,10 @@ void main() {
+             return false;
+         }
+         uMVP = glGetUniformLocation( program, "uMVP" );
++        uModel = glGetUniformLocation( program, "uModel" );
+         uColor = glGetUniformLocation( program, "uColor" );
++        uAlpha = glGetUniformLocation( program, "uAlpha" );
++        uLightDir = glGetUniformLocation( program, "uLightDir" );
+ 
+         glGenVertexArrays( 1, &triVAO );
+         glGenBuffers( 1, &triVBO );
+@@ -512,24 +915,66 @@ void main() {
+         glBindBuffer( GL_ARRAY_BUFFER, triVBO );
+         glBufferData( GL_ARRAY_BUFFER, 0, nullptr, GL_STREAM_DRAW );
+         glEnableVertexAttribArray( 0 );
+-        glVertexAttribPointer( 0, 3, GL_FLOAT, GL_FALSE, sizeof( float ) * 3, nullptr );
++        glVertexAttribPointer( 0, 3, GL_FLOAT, GL_FALSE, sizeof( float ) * 9, reinterpret_cast<void *>( 0 ) );
++        glEnableVertexAttribArray( 1 );
++        glVertexAttribPointer( 1, 3, GL_FLOAT, GL_FALSE, sizeof( float ) * 9, reinterpret_cast<void *>( sizeof( float ) * 3 ) );
++        glEnableVertexAttribArray( 2 );
++        glVertexAttribPointer( 2, 3, GL_FLOAT, GL_FALSE, sizeof( float ) * 9, reinterpret_cast<void *>( sizeof( float ) * 6 ) );
+         glBindVertexArray( 0 );
+ 
+         return true;
+     }
+ 
+-    void DrawVertexStream( const glm::mat4 &mvp, const std::vector<float> &verts, GLenum prim, const glm::vec3 &color )
++    void DrawVertexStream( const glm::mat4 &mvp, const glm::mat4 &modelMat,
++                           const std::vector<float> &verts, const std::vector<float> &norms,
++                           const std::vector<float> &colors,
++                           GLenum prim, const glm::vec3 &color, float alpha )
+     {
+         if ( verts.empty() )
+         {
+             return;
+         }
++        std::vector<float> interleaved;
++        interleaved.reserve( ( verts.size() / 3 ) * 9 );
++        const bool hasNorms = ( norms.size() == verts.size() );
++        const bool hasColors = ( colors.size() == verts.size() );
++        for ( size_t i = 0; i < verts.size() / 3; ++i )
++        {
++            interleaved.push_back( verts[i * 3 + 0] );
++            interleaved.push_back( verts[i * 3 + 1] );
++            interleaved.push_back( verts[i * 3 + 2] );
++            if ( hasNorms )
++            {
++                interleaved.push_back( norms[i * 3 + 0] );
++                interleaved.push_back( norms[i * 3 + 1] );
++                interleaved.push_back( norms[i * 3 + 2] );
++            }
++            else
++            {
++                interleaved.insert( interleaved.end(), { 0.0f, 1.0f, 0.0f } );
++            }
++            if ( hasColors )
++            {
++                interleaved.push_back( colors[i * 3 + 0] );
++                interleaved.push_back( colors[i * 3 + 1] );
++                interleaved.push_back( colors[i * 3 + 2] );
++            }
++            else
++            {
++                interleaved.push_back( color.r );
++                interleaved.push_back( color.g );
++                interleaved.push_back( color.b );
++            }
++        }
+         glUseProgram( program );
+         glUniformMatrix4fv( uMVP, 1, GL_FALSE, glm::value_ptr( mvp ) );
++        glUniformMatrix4fv( uModel, 1, GL_FALSE, glm::value_ptr( modelMat ) );
+         glUniform3f( uColor, color.r, color.g, color.b );
++        glUniform1f( uAlpha, alpha );
++        glUniform3f( uLightDir, 0.35f, 0.8f, 0.45f );
+         glBindVertexArray( triVAO );
+         glBindBuffer( GL_ARRAY_BUFFER, triVBO );
+-        glBufferData( GL_ARRAY_BUFFER, static_cast<GLsizeiptr>( sizeof( float ) * verts.size() ), verts.data(), GL_STREAM_DRAW );
++        glBufferData( GL_ARRAY_BUFFER, static_cast<GLsizeiptr>( sizeof( float ) * interleaved.size() ), interleaved.data(), GL_STREAM_DRAW );
+         glDrawArrays( prim, 0, static_cast<GLsizei>( verts.size() / 3 ) );
+     }
+ 
+@@ -549,13 +994,87 @@ void main() {
+                           static_cast<float>( -p.y() ) );
+     }
+ 
++    static glm::vec3 ConvertVspNormalToVrModel( const vec3d &n )
++    {
++        const glm::vec3 v( static_cast<float>( n.x() ),
++                           static_cast<float>( n.z() ),
++                           static_cast<float>( -n.y() ) );
++        const float len2 = glm::dot( v, v );
++        if ( len2 < 1.0e-12f )
++        {
++            return glm::vec3( 0.0f, 1.0f, 0.0f );
++        }
++        return glm::normalize( v );
++    }
++
+     bool BuildSampledModelMesh()
+     {
+         cachedModelVerts.clear();
++        cachedModelNorms.clear();
++        cachedWireVerts.clear();
++        cachedWireColors.clear();
+         cachedModelBoundsValid = false;
++        cachedModelAlpha = 1.0f;
+         std::vector<std::string> geoms = vsp::FindGeoms();
+         for ( const std::string &gid : geoms )
+         {
++            int drawType = vsp::GEOM_DRAW_SHADE;
++            vec3d wireColor( 0.0, 0.0, 1.0 ); // Match VSP default wire color fallback.
++            double alpha = 1.0;
++            bool hasDrawType = false;
++            bool hasAlpha = false;
++            bool hasWireColor = false;
++            const std::vector<std::string> parmIDs = vsp::GetGeomParmIDs( gid );
++            for ( const std::string &pid : parmIDs )
++            {
++                const std::string pname = vsp::GetParmName( pid );
++                const std::string gname = vsp::GetParmGroupName( pid );
++                const std::string dgname = vsp::GetParmDisplayGroupName( pid );
++                std::string group = gname + " " + dgname;
++                std::transform( group.begin(), group.end(), group.begin(), []( unsigned char c )
++                                { return static_cast<char>( std::tolower( c ) ); } );
++
++                if ( pname == "DrawType" )
++                {
++                    drawType = static_cast<int>( std::lround( vsp::GetParmVal( pid ) ) );
++                    hasDrawType = true;
++                }
++                if ( pname == "Alpha" && group.find( "material" ) != std::string::npos )
++                {
++                    alpha = std::clamp( vsp::GetParmVal( pid ), 0.0, 1.0 );
++                    hasAlpha = true;
++                }
++                if ( group.find( "wire" ) != std::string::npos )
++                {
++                    if ( pname == "R" || pname == "Red" )
++                    {
++                        wireColor.set_x( vsp::GetParmVal( pid ) / 255.0 );
++                        hasWireColor = true;
++                    }
++                    else if ( pname == "G" || pname == "Green" )
++                    {
++                        wireColor.set_y( vsp::GetParmVal( pid ) / 255.0 );
++                        hasWireColor = true;
++                    }
++                    else if ( pname == "B" || pname == "Blue" )
++                    {
++                        wireColor.set_z( vsp::GetParmVal( pid ) / 255.0 );
++                        hasWireColor = true;
++                    }
++                }
++            }
++            ( void )hasWireColor;
++            if ( !hasDrawType )
++            {
++                drawType = vsp::GEOM_DRAW_SHADE;
++            }
++            if ( !hasAlpha )
++            {
++                alpha = 1.0;
++            }
++            // Avoid forcing whole-model translucency from one bad/aux value in quick-path aggregation.
++            cachedModelAlpha = std::max( cachedModelAlpha, static_cast<float>( alpha ) );
++
+             // Use total surfaces so planar/axial symmetry copies are included.
+             const int numSurf = std::max( 0, vsp::GetTotalNumSurfs( gid ) );
+             for ( int s = 0; s < numSurf; ++s )
+@@ -576,10 +1095,18 @@ void main() {
+                         const vec3d p10 = vsp::CompPnt01( gid, s, utess[i + 1], wtess[j] );
+                         const vec3d p01 = vsp::CompPnt01( gid, s, utess[i], wtess[j + 1] );
+                         const vec3d p11 = vsp::CompPnt01( gid, s, utess[i + 1], wtess[j + 1] );
++                        const vec3d n00_api = vsp::CompNorm01( gid, s, utess[i], wtess[j] );
++                        const vec3d n10_api = vsp::CompNorm01( gid, s, utess[i + 1], wtess[j] );
++                        const vec3d n01_api = vsp::CompNorm01( gid, s, utess[i], wtess[j + 1] );
++                        const vec3d n11_api = vsp::CompNorm01( gid, s, utess[i + 1], wtess[j + 1] );
+                         const glm::vec3 v00 = ConvertVspToVrModel( p00 );
+                         const glm::vec3 v10 = ConvertVspToVrModel( p10 );
+                         const glm::vec3 v01 = ConvertVspToVrModel( p01 );
+                         const glm::vec3 v11 = ConvertVspToVrModel( p11 );
++                        const glm::vec3 n00 = ConvertVspNormalToVrModel( n00_api );
++                        const glm::vec3 n10 = ConvertVspNormalToVrModel( n10_api );
++                        const glm::vec3 n01 = ConvertVspNormalToVrModel( n01_api );
++                        const glm::vec3 n11 = ConvertVspNormalToVrModel( n11_api );
+ 
+                         auto append_glm = [this]( const glm::vec3 &p )
+                         {
+@@ -597,19 +1124,39 @@ void main() {
+                                 cachedModelMax = glm::max( cachedModelMax, p );
+                             }
+                         };
++                        const bool drawShade = ( drawType == vsp::GEOM_DRAW_SHADE || drawType == vsp::GEOM_DRAW_TEXTURE || drawType == vsp::GEOM_DRAW_HIDDEN );
++                        // Hidden-line parity needs a dedicated pass; for now, avoid full grid wire overlay in hidden mode.
++                        const bool drawWire = ( drawType == vsp::GEOM_DRAW_WIRE );
++                        if ( drawShade )
++                        {
++                            append_glm( v00 ); append_glm( v10 ); append_glm( v11 );
++                            cachedModelNorms.insert( cachedModelNorms.end(), { n00.x, n00.y, n00.z, n10.x, n10.y, n10.z, n11.x, n11.y, n11.z } );
+ 
+-                        append_glm( v00 );
+-                        append_glm( v10 );
+-                        append_glm( v11 );
+-
+-                        append_glm( v00 );
+-                        append_glm( v11 );
+-                        append_glm( v01 );
++                            append_glm( v00 ); append_glm( v11 ); append_glm( v01 );
++                            cachedModelNorms.insert( cachedModelNorms.end(), { n00.x, n00.y, n00.z, n11.x, n11.y, n11.z, n01.x, n01.y, n01.z } );
++                        }
++                        if ( drawWire )
++                        {
++                            auto addWire = [this, &wireColor]( const glm::vec3 &a, const glm::vec3 &b )
++                            {
++                                cachedWireVerts.insert( cachedWireVerts.end(), { a.x, a.y, a.z, b.x, b.y, b.z } );
++                                for ( int i = 0; i < 2; ++i )
++                                {
++                                    cachedWireColors.push_back( static_cast<float>( wireColor.x() ) );
++                                    cachedWireColors.push_back( static_cast<float>( wireColor.y() ) );
++                                    cachedWireColors.push_back( static_cast<float>( wireColor.z() ) );
++                                }
++                            };
++                            addWire( v00, v10 );
++                            addWire( v10, v11 );
++                            addWire( v11, v01 );
++                            addWire( v01, v00 );
++                        }
+                     }
+                 }
+             }
+         }
+-        cachedModelValid = !cachedModelVerts.empty();
++        cachedModelValid = ( !cachedModelVerts.empty() || !cachedWireVerts.empty() );
+         if ( !cachedModelValid )
+         {
+             fprintf( stderr, "[VSP_VR] No geom mesh sampled from OpenVSP scene.\n" );
+@@ -617,7 +1164,7 @@ void main() {
+         return cachedModelValid;
+     }
+ 
+-    bool DrawVehicleModel( const glm::mat4 &mvp )
++    bool DrawVehicleModel( const glm::mat4 &mvp, const glm::mat4 &modelMat )
+     {
+         if ( !cachedModelValid )
+         {
+@@ -627,9 +1174,31 @@ void main() {
+         {
+             return false;
+         }
++        bool drew = false;
+         // Slight blue tint to make geometry easier to distinguish from background.
+-        DrawVertexStream( mvp, cachedModelVerts, GL_TRIANGLES, glm::vec3( 0.65f, 0.75f, 0.95f ) );
+-        return true;
++        if ( !cachedModelVerts.empty() )
++        {
++            if ( cachedModelAlpha < 0.999f )
++            {
++                glEnable( GL_BLEND );
++                glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
++            }
++            DrawVertexStream( mvp, modelMat, cachedModelVerts, cachedModelNorms, std::vector<float>{},
++                              GL_TRIANGLES, glm::vec3( 0.65f, 0.75f, 0.95f ), cachedModelAlpha );
++            if ( cachedModelAlpha < 0.999f )
++            {
++                glDisable( GL_BLEND );
++            }
++            drew = true;
++        }
++        if ( !cachedWireVerts.empty() )
++        {
++            glLineWidth( 1.5f );
++            DrawVertexStream( mvp, modelMat, cachedWireVerts, std::vector<float>{}, cachedWireColors,
++                              GL_LINES, glm::vec3( 1.0f, 1.0f, 1.0f ), 1.0f );
++            drew = true;
++        }
++        return drew;
+     }
+ 
+     void DestroyGLResources()
+@@ -654,6 +1223,16 @@ void main() {
+     void DestroyXrSession()
+     {
+         DestroySwapchains();
++        if ( leftGripSpace != XR_NULL_HANDLE )
++        {
++            xrDestroySpace( leftGripSpace );
++            leftGripSpace = XR_NULL_HANDLE;
++        }
++        if ( rightGripSpace != XR_NULL_HANDLE )
++        {
++            xrDestroySpace( rightGripSpace );
++            rightGripSpace = XR_NULL_HANDLE;
++        }
+         if ( viewSpace != XR_NULL_HANDLE )
+         {
+             xrDestroySpace( viewSpace );
+@@ -674,6 +1253,26 @@ void main() {
+             xrDestroySession( session );
+             session = XR_NULL_HANDLE;
+         }
++        if ( squeezeAction != XR_NULL_HANDLE )
++        {
++            xrDestroyAction( squeezeAction );
++            squeezeAction = XR_NULL_HANDLE;
++        }
++        if ( triggerAction != XR_NULL_HANDLE )
++        {
++            xrDestroyAction( triggerAction );
++            triggerAction = XR_NULL_HANDLE;
++        }
++        if ( gripPoseAction != XR_NULL_HANDLE )
++        {
++            xrDestroyAction( gripPoseAction );
++            gripPoseAction = XR_NULL_HANDLE;
++        }
++        if ( actionSet != XR_NULL_HANDLE )
++        {
++            xrDestroyActionSet( actionSet );
++            actionSet = XR_NULL_HANDLE;
++        }
+         systemId = XR_NULL_SYSTEM_ID;
+     }
+ 
+@@ -729,6 +1328,15 @@ bool VRManager::Init( HWND hwnd, HDC hdc, HGLRC glrc )
+         m_running = false;
+         return false;
+     }
++    if ( !m_impl->CreateInputActions() )
++    {
++        m_impl->DestroyXrSession();
++        m_impl->DestroyInstance();
++        delete m_impl;
++        m_impl = nullptr;
++        m_running = false;
++        return false;
++    }
+ 
+     m_running = true;
+     fprintf( stderr, "[VSP_VR] Init complete. Waiting for session state READY...\n" );
+@@ -807,6 +1415,7 @@ bool VRManager::PollEvents()
+                 {
+                     xrEndSession( m_impl->session );
+                     m_impl->sessionBegun = false;
++                    m_impl->ResetInteractionState();
+                     fprintf( stderr, "[VSP_VR] xrEndSession done (STOPPING).\n" );
+                 }
+             }
+@@ -927,6 +1536,8 @@ bool VRManager::RenderStereoDemo()
+         return true;
+     }
+ 
++    m_impl->UpdateInteraction( frameState.predictedDisplayTime );
++
+     XrCompositionLayerProjectionView projViews[2]{ { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW }, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW } };
+ 
+     const float nearZ = 0.05f;
+@@ -958,20 +1569,22 @@ bool VRManager::RenderStereoDemo()
+ 
+         glBindFramebuffer( GL_FRAMEBUFFER, m_impl->eyes[eye].fbos[imgIndex] );
+         glViewport( 0, 0, m_impl->eyes[eye].w, m_impl->eyes[eye].h );
+-        glDisable( GL_DEPTH_TEST );
++        glEnable( GL_DEPTH_TEST );
++        glDepthMask( GL_TRUE );
++        glClearDepth( 1.0 );
+         glClearColor( 0.03f, 0.03f, 0.06f, 1.f );
+-        glClear( GL_COLOR_BUFFER_BIT );
++        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+ 
+         const glm::mat4 viewMat = glm::inverse( XrPoseToMat4( views[eye].pose ) );
+         const glm::mat4 proj = ProjectionFromFov( views[eye].fov, nearZ, farZ );
+         const glm::mat4 model =
+-            glm::translate( glm::mat4( 1.f ), m_impl->demoAnchorPos ) *
+-            glm::scale( glm::mat4( 1.f ), glm::vec3( m_impl->demoScale ) ) *
++            glm::translate( glm::mat4( 1.f ), m_impl->modelTranslation ) *
++            glm::mat4_cast( m_impl->modelRotation ) *
++            glm::scale( glm::mat4( 1.f ), glm::vec3( m_impl->modelScale ) ) *
+             glm::translate( glm::mat4( 1.f ), m_impl->modelLocalOffset );
+         const glm::mat4 mvp = proj * viewMat * model;
+ 
+-        glEnable( GL_DEPTH_TEST );
+-        const bool drewModel = m_impl->DrawVehicleModel( mvp );
++        const bool drewModel = m_impl->DrawVehicleModel( mvp, model );
+ 
+         if ( !drewModel )
+         {
+@@ -984,7 +1597,13 @@ bool VRManager::RenderStereoDemo()
+             const float cr = ( eye == 0 ) ? 0.9f : 0.4f;
+             const float cg = ( eye == 0 ) ? 0.4f : 0.85f;
+             const float cb = 0.3f;
+-            m_impl->DrawVertexStream( mvp, triVerts, GL_TRIANGLES, glm::vec3( cr, cg, cb ) );
++            const std::vector<float> triNorms = {
++                0.0f, 0.0f, 1.0f,
++                0.0f, 0.0f, 1.0f,
++                0.0f, 0.0f, 1.0f
++            };
++            m_impl->DrawVertexStream( mvp, model, triVerts, triNorms, std::vector<float>{},
++                                      GL_TRIANGLES, glm::vec3( cr, cg, cb ), 1.0f );
+         }
+ 
+         glBindVertexArray( 0 );
+-- 
+2.54.0.windows.1
+

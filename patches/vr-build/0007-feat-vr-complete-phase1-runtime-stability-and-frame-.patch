@@ -1,0 +1,236 @@
+From e25ebb30ce6bab8078eca7a4c8ac413fbb2489b7 Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Fri, 1 May 2026 10:00:54 -0700
+Subject: [PATCH 07/23] feat(vr): complete phase1 runtime stability and frame
+ flow
+
+Finalize Phase 1 by aligning OpenXR frame pumping with a proven wait/begin/end flow, handling invalid view poses with empty-frame submission, and improving first-view placement so stereo demo content appears predictably. This stabilizes startup/resume behavior in Virtual Desktop while keeping runtime rendering active once the session is begun.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/src/vr/VRManager.cpp b/src/vr/VRManager.cpp
+index b7c50c291..3d9b53d86 100644
+--- a/src/vr/VRManager.cpp
++++ b/src/vr/VRManager.cpp
+@@ -13,6 +13,7 @@
+ #include <glm/gtc/matrix_transform.hpp>
+ #include <glm/gtc/quaternion.hpp>
+ #include <glm/gtc/type_ptr.hpp>
++#include <glm/geometric.hpp>
+ #include <glm/mat4x4.hpp>
+ 
+ #ifdef _WIN32
+@@ -144,7 +145,8 @@ struct VRManager::Impl
+ 
+     XrSessionState sessionState = XR_SESSION_STATE_UNKNOWN;
+     bool sessionBegun = false;
+-    int focusStabilizeFrames = 0;
++    bool demoAnchorValid = false;
++    glm::vec3 demoAnchorPos = glm::vec3( 0.f, 1.35f, -2.5f );
+ 
+     struct EyeSwap
+     {
+@@ -240,13 +242,15 @@ struct VRManager::Impl
+             return false;
+         }
+ 
+-        XrReferenceSpaceCreateInfo stage{ XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
+-        stage.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+-        stage.poseInReferenceSpace.orientation.w = 1.f;
+-        r = xrCreateReferenceSpace( session, &stage, &stageSpace );
++        XrReferenceSpaceCreateInfo world{ XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
++        // Virtual Desktop appears to produce unstable behavior with STAGE in this prototype.
++        // Force LOCAL for now to isolate world-lock stability issues.
++        world.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
++        world.poseInReferenceSpace.orientation.w = 1.f;
++        r = xrCreateReferenceSpace( session, &world, &stageSpace );
+         if ( XR_FAILED( r ) )
+         {
+-            PrintXrError( "xrCreateReferenceSpace(STAGE)", r );
++            PrintXrError( "xrCreateReferenceSpace(LOCAL)", r );
+             return false;
+         }
+ 
+@@ -275,6 +279,7 @@ struct VRManager::Impl
+             return false;
+         }
+         sessionBegun = true;
++        demoAnchorValid = false;
+         return true;
+     }
+ 
+@@ -632,11 +637,6 @@ bool VRManager::PollEvents()
+                 m_running = false;
+             }
+ 
+-            if ( s->state == XR_SESSION_STATE_FOCUSED )
+-            {
+-                // Give runtime tracking a moment to settle after resume/remount.
+-                m_impl->focusStabilizeFrames = 30;
+-            }
+             break;
+         }
+         default:
+@@ -652,17 +652,16 @@ bool VRManager::IsSessionRunning() const
+     {
+         return false;
+     }
+-    switch ( m_impl->sessionState )
+-    {
+-    case XR_SESSION_STATE_FOCUSED:
+-        return true;
+-    default:
+-        return false;
+-    }
++    return m_impl->sessionBegun &&
++           m_impl->sessionState != XR_SESSION_STATE_STOPPING &&
++           m_impl->sessionState != XR_SESSION_STATE_EXITING &&
++           m_impl->sessionState != XR_SESSION_STATE_LOSS_PENDING;
+ }
+ 
+ bool VRManager::RenderStereoDemo()
+ {
++    static int s_frameCounter = 0;
++    ++s_frameCounter;
+     if ( !m_impl || !m_running )
+     {
+         return false;
+@@ -693,7 +692,6 @@ bool VRManager::RenderStereoDemo()
+         PrintXrError( "xrWaitFrame", r );
+         return false;
+     }
+-    m_lastPredictedDisplayTime = frameState.predictedDisplayTime;
+ 
+     XrFrameBeginInfo beginInfo{ XR_TYPE_FRAME_BEGIN_INFO };
+     r = xrBeginFrame( m_impl->session, &beginInfo );
+@@ -705,8 +703,13 @@ bool VRManager::RenderStereoDemo()
+ 
+     if ( !frameState.shouldRender )
+     {
++        if ( s_frameCounter <= 240 )
++        {
++            fprintf( stderr, "[VSP_VR] frame %d: shouldRender=false\n", s_frameCounter );
++        }
+         XrFrameEndInfo endSkip{ XR_TYPE_FRAME_END_INFO };
+         endSkip.displayTime = frameState.predictedDisplayTime;
++        endSkip.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+         endSkip.layerCount = 0;
+         endSkip.layers = nullptr;
+         xrEndFrame( m_impl->session, &endSkip );
+@@ -726,12 +729,12 @@ bool VRManager::RenderStereoDemo()
+     views[1].pose.orientation.w = 1.0f;
+ 
+     r = xrLocateViews( m_impl->session, &vli, &viewState, viewCap, &viewCountOut, views );
+-    const XrViewStateFlags needFlags =
++    const XrViewStateFlags needValidFlags =
+         XR_VIEW_STATE_ORIENTATION_VALID_BIT |
+-        XR_VIEW_STATE_POSITION_VALID_BIT |
+-        XR_VIEW_STATE_ORIENTATION_TRACKED_BIT |
+-        XR_VIEW_STATE_POSITION_TRACKED_BIT;
+-    if ( XR_FAILED( r ) || viewCountOut != 2 || ( viewState.viewStateFlags & needFlags ) != needFlags )
++        XR_VIEW_STATE_POSITION_VALID_BIT;
++
++    if ( XR_FAILED( r ) || viewCountOut != 2 ||
++         ( viewState.viewStateFlags & needValidFlags ) != needValidFlags )
+     {
+         if ( XR_FAILED( r ) )
+         {
+@@ -739,8 +742,11 @@ bool VRManager::RenderStereoDemo()
+         }
+         else
+         {
+-            fprintf( stderr, "[VSP_VR] xrLocateViews not valid yet (count=%u flags=0x%llx). Skipping frame.\n",
+-                     viewCountOut, static_cast<unsigned long long>( viewState.viewStateFlags ) );
++            if ( s_frameCounter <= 240 )
++            {
++                fprintf( stderr, "[VSP_VR] frame %d: invalid views count=%u flags=0x%llx (empty frame)\n",
++                         s_frameCounter, viewCountOut, static_cast<unsigned long long>( viewState.viewStateFlags ) );
++            }
+         }
+ 
+         XrFrameEndInfo endSkip{ XR_TYPE_FRAME_END_INFO };
+@@ -752,16 +758,29 @@ bool VRManager::RenderStereoDemo()
+         return true;
+     }
+ 
+-    if ( m_impl->focusStabilizeFrames > 0 )
++    if ( !m_impl->demoAnchorValid )
+     {
+-        --m_impl->focusStabilizeFrames;
+-        XrFrameEndInfo endSkip{ XR_TYPE_FRAME_END_INFO };
+-        endSkip.displayTime = frameState.predictedDisplayTime;
+-        endSkip.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+-        endSkip.layerCount = 0;
+-        endSkip.layers = nullptr;
+-        xrEndFrame( m_impl->session, &endSkip );
+-        return true;
++        const XrPosef &headPose = views[0].pose;
++        const glm::quat headQ( headPose.orientation.w, headPose.orientation.x,
++                               headPose.orientation.y, headPose.orientation.z );
++        const glm::vec3 headP( headPose.position.x, headPose.position.y, headPose.position.z );
++        glm::vec3 fwd = glm::mat3_cast( headQ ) * glm::vec3( 0.f, 0.f, -1.f );
++        if ( glm::length( fwd ) < 1.0e-4f )
++        {
++            fwd = glm::vec3( 0.f, 0.f, -1.f );
++        }
++        else
++        {
++            fwd = glm::normalize( fwd );
++        }
++        m_impl->demoAnchorPos = headP + fwd * 2.0f;
++        m_impl->demoAnchorPos.y = headP.y - 0.15f;
++        m_impl->demoAnchorValid = true;
++    }
++    else if ( s_frameCounter <= 60 )
++    {
++        fprintf( stderr, "[VSP_VR] frame %d: render views flags=0x%llx\n",
++                 s_frameCounter, static_cast<unsigned long long>( viewState.viewStateFlags ) );
+     }
+ 
+     XrCompositionLayerProjectionView projViews[2]{ { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW }, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW } };
+@@ -802,7 +821,7 @@ bool VRManager::RenderStereoDemo()
+         const glm::mat4 viewMat = glm::inverse( XrPoseToMat4( views[eye].pose ) );
+         const glm::mat4 proj = ProjectionFromFov( views[eye].fov, nearZ, farZ );
+         const glm::mat4 model =
+-            glm::translate( glm::mat4( 1.f ), glm::vec3( 0.f, 1.35f, -2.5f ) ) *
++            glm::translate( glm::mat4( 1.f ), m_impl->demoAnchorPos ) *
+             glm::scale( glm::mat4( 1.f ), glm::vec3( 0.55f ) );
+         const glm::mat4 mvp = proj * viewMat * model;
+ 
+diff --git a/src/vr/VRManager.h b/src/vr/VRManager.h
+index 5e3aca648..9bd1bebb5 100644
+--- a/src/vr/VRManager.h
++++ b/src/vr/VRManager.h
+@@ -16,8 +16,6 @@
+ #include <windows.h>
+ #endif
+ 
+-#include <cstdint>
+-
+ // Phase 1: OpenXR session + stereo swapchains; demo triangle per eye (Windows OpenGL).
+ 
+ class VRManager
+@@ -47,12 +45,6 @@ public:
+     /// Phase 1: render one stereo frame (colored triangle) into swapchains.
+     bool RenderStereoDemo();
+ 
+-    /// Last predicted display time (nanoseconds), valid after a successful RenderStereoDemo begin.
+-    int64_t GetLastPredictedDisplayTime() const
+-    {
+-        return m_lastPredictedDisplayTime;
+-    }
+-
+ private:
+     VRManager() = default;
+     ~VRManager();
+@@ -64,7 +56,6 @@ private:
+     Impl *m_impl = nullptr;
+ 
+     bool m_running = false;
+-    int64_t m_lastPredictedDisplayTime = 0;
+ };
+ 
+ #endif
+-- 
+2.54.0.windows.1
+
