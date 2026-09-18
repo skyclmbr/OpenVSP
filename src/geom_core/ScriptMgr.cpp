@@ -5394,6 +5394,58 @@ void ScriptMgrSingleton::RegisterAPI( asIScriptEngine* se )
     assert( r >= 0 );
 
 
+    r = se->RegisterGlobalFunction( "string AddFeaAssembly()", asFUNCTION( vsp::AddFeaAssembly ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "void DeleteFeaAssembly( const string & in assembly_id )", asFUNCTION( vsp::DeleteFeaAssembly ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "int NumFeaAssemblies()", asFUNCTION( vsp::NumFeaAssemblies ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "array<string>@+ GetFeaAssemblyIDVec()", asMETHOD( ScriptMgrSingleton, GetFeaAssemblyIDVec ), asCALL_THISCALL_ASGLOBAL, &ScriptMgr );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "string GetFeaAssemblyName( const string & in assembly_id )", asFUNCTION( vsp::GetFeaAssemblyName ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "void SetFeaAssemblyName( const string & in assembly_id, const string & in name )", asFUNCTION( vsp::SetFeaAssemblyName ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "void AddFeaStructToAssembly( const string & in assembly_id, const string & in struct_id )", asFUNCTION( vsp::AddFeaStructToAssembly ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "void DelFeaStructFromAssembly( const string & in assembly_id, const string & in struct_id )", asFUNCTION( vsp::DelFeaStructFromAssembly ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "array<string>@+ GetFeaAssemblyStructIDVec( const string & in assembly_id )", asMETHOD( ScriptMgrSingleton, GetFeaAssemblyStructIDVec ), asCALL_THISCALL_ASGLOBAL, &ScriptMgr );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "void SetFeaAssemblyFileName( const string & in assembly_id, int file_type, const string & in file_name )", asFUNCTION( vsp::SetFeaAssemblyFileName ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "void SetFeaAssemblyMeshExportFlag( const string & in assembly_id, int file_type, bool flag )", asFUNCTION( vsp::SetFeaAssemblyMeshExportFlag ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "void ExportFeaAssemblyMesh( const string & in assembly_id )", asFUNCTION( vsp::ExportFeaAssemblyMesh ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
+    r = se->RegisterGlobalFunction( "void ComputeFeaAssemblyMesh( const string & in assembly_id, int file_type )", asFUNCTION( vsp::ComputeFeaAssemblyMesh ), asCALL_CDECL );
+    assert( r >= 0 );
+
+
     r = se->RegisterGlobalFunction( "string AddFeaPart( const string & in geom_id, int fea_struct_ind, int type )", asFUNCTION( vsp::AddFeaPart ), asCALL_CDECL );
     assert( r >= 0 );
 
@@ -6545,6 +6597,18 @@ void ScriptMgrSingleton::DeleteExcrescence(int index)
 CScriptArray* ScriptMgrSingleton::GetFeaStructIDVec()
 {
     m_ProxyStringArray = vsp::GetFeaStructIDVec( );
+    return GetProxyStringArray();
+}
+
+CScriptArray* ScriptMgrSingleton::GetFeaAssemblyIDVec()
+{
+    m_ProxyStringArray = vsp::GetFeaAssemblyIDVec();
+    return GetProxyStringArray();
+}
+
+CScriptArray* ScriptMgrSingleton::GetFeaAssemblyStructIDVec( const string & assembly_id )
+{
+    m_ProxyStringArray = vsp::GetFeaAssemblyStructIDVec( assembly_id );
     return GetProxyStringArray();
 }
 

@@ -4214,6 +4214,238 @@ void ComputeFeaMesh( const string & struct_id, int file_type )
     ErrorMgr.NoError();
 }
 
+string AddFeaAssembly()
+{
+    FeaAssembly* feaassy = StructureMgr.AddFeaAssembly();
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "AddFeaAssembly::Failed to create FEA Assembly" );
+        return string();
+    }
+
+    ErrorMgr.NoError();
+    return feaassy->GetID();
+}
+
+void DeleteFeaAssembly( const string & assembly_id )
+{
+    vector < FeaAssembly* > assy_vec = StructureMgr.GetFeaAssemblyVec();
+    for ( int i = 0; i < (int)assy_vec.size(); i++ )
+    {
+        if ( assy_vec[i] && assy_vec[i]->GetID() == assembly_id )
+        {
+            StructureMgr.DeleteFeaAssembly( i );
+            ErrorMgr.NoError();
+            return;
+        }
+    }
+
+    ErrorMgr.AddError( VSP_INVALID_ID, "DeleteFeaAssembly::Can't Find Assembly " + assembly_id );
+}
+
+int NumFeaAssemblies()
+{
+    ErrorMgr.NoError();
+    return StructureMgr.NumFeaAssembly();
+}
+
+vector< string > GetFeaAssemblyIDVec()
+{
+    vector < string > ret_vec;
+    vector < FeaAssembly* > assy_vec = StructureMgr.GetFeaAssemblyVec();
+    ret_vec.resize( assy_vec.size() );
+
+    for ( size_t i = 0; i < assy_vec.size(); i++ )
+    {
+        if ( assy_vec[i] )
+        {
+            ret_vec[i] = assy_vec[i]->GetID();
+        }
+    }
+
+    ErrorMgr.NoError();
+    return ret_vec;
+}
+
+string GetFeaAssemblyName( const string & assembly_id )
+{
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetFeaAssemblyName::Can't Find Assembly " + assembly_id );
+        return string();
+    }
+
+    ErrorMgr.NoError();
+    return feaassy->GetName();
+}
+
+void SetFeaAssemblyName( const string & assembly_id, const string & name )
+{
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetFeaAssemblyName::Can't Find Assembly " + assembly_id );
+        return;
+    }
+
+    feaassy->SetName( name );
+    ErrorMgr.NoError();
+}
+
+void AddFeaStructToAssembly( const string & assembly_id, const string & struct_id )
+{
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "AddFeaStructToAssembly::Can't Find Assembly " + assembly_id );
+        return;
+    }
+
+    FeaStructure* feastruct = StructureMgr.GetFeaStruct( struct_id );
+    if ( !feastruct )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "AddFeaStructToAssembly::Can't Find Structure " + struct_id );
+        return;
+    }
+
+    feaassy->AddStructure( struct_id );
+    ErrorMgr.NoError();
+}
+
+void DelFeaStructFromAssembly( const string & assembly_id, const string & struct_id )
+{
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "DelFeaStructFromAssembly::Can't Find Assembly " + assembly_id );
+        return;
+    }
+
+    feaassy->DelStructure( struct_id );
+    ErrorMgr.NoError();
+}
+
+vector< string > GetFeaAssemblyStructIDVec( const string & assembly_id )
+{
+    vector < string > ret_vec;
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetFeaAssemblyStructIDVec::Can't Find Assembly " + assembly_id );
+        return ret_vec;
+    }
+
+    ErrorMgr.NoError();
+    return feaassy->m_StructIDVec;
+}
+
+void SetFeaAssemblyFileName( const string & assembly_id, int file_type, const string & file_name )
+{
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetFeaAssemblyFileName::Can't Find Assembly " + assembly_id );
+        return;
+    }
+
+    if ( file_type < 0 || file_type >= vsp::FEA_NUM_FILE_NAMES )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_TYPE, "SetFeaAssemblyFileName::Invalid file type " + to_string( (long long)file_type ) );
+        return;
+    }
+
+    feaassy->m_AssemblySettings.SetExportFileName( file_name, file_type );
+    ErrorMgr.NoError();
+}
+
+void SetFeaAssemblyMeshExportFlag( const string & assembly_id, int file_type, bool flag )
+{
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetFeaAssemblyMeshExportFlag::Can't Find Assembly " + assembly_id );
+        return;
+    }
+
+    if ( file_type < 0 || file_type >= vsp::FEA_NUM_FILE_NAMES )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_TYPE, "SetFeaAssemblyMeshExportFlag::Invalid file type " + to_string( (long long)file_type ) );
+        return;
+    }
+
+    feaassy->m_AssemblySettings.SetFileExportFlag( file_type, flag );
+    ErrorMgr.NoError();
+}
+
+void ExportFeaAssemblyMesh( const string & assembly_id )
+{
+    Update();
+
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "ExportFeaAssemblyMesh::Can't Find Assembly " + assembly_id );
+        return;
+    }
+
+    if ( feaassy->m_StructIDVec.empty() )
+    {
+        ErrorMgr.AddError( VSP_INVALID_INPUT_VAL, "ExportFeaAssemblyMesh::Assembly has no Structures " + assembly_id );
+        return;
+    }
+
+    FeaMeshMgr.addOutputText( "CLEAR_TERMINAL" );
+    FeaMeshMgr.MeshUnMeshed( feaassy->m_StructIDVec );
+    FeaMeshMgr.ExportAssemblyMesh( assembly_id );
+
+    ErrorMgr.NoError();
+}
+
+void ComputeFeaAssemblyMesh( const string & assembly_id, int file_type )
+{
+    Update();
+
+    FeaAssembly* feaassy = StructureMgr.GetFeaAssembly( assembly_id );
+    if ( !feaassy )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "ComputeFeaAssemblyMesh::Can't Find Assembly " + assembly_id );
+        return;
+    }
+
+    if ( file_type < 0 || file_type >= vsp::FEA_NUM_FILE_NAMES )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_TYPE, "ComputeFeaAssemblyMesh::Invalid file type " + to_string( (long long)file_type ) );
+        return;
+    }
+
+    if ( feaassy->m_StructIDVec.empty() )
+    {
+        ErrorMgr.AddError( VSP_INVALID_INPUT_VAL, "ComputeFeaAssemblyMesh::Assembly has no Structures " + assembly_id );
+        return;
+    }
+
+    feaassy->m_AssemblySettings.SetAllFileExportFlags( false );
+    feaassy->m_AssemblySettings.SetFileExportFlag( file_type, true );
+
+    // NASTRAN assembly write optionally emits .nkey when that flag is enabled.
+    // Co-enable NKEY whenever a non-empty NKEY path is configured (GUI-like).
+    if ( file_type == vsp::FEA_NASTRAN_FILE_NAME )
+    {
+        string nkey_name = feaassy->m_AssemblySettings.GetExportFileName( vsp::FEA_NKEY_FILE_NAME );
+        if ( !nkey_name.empty() )
+        {
+            feaassy->m_AssemblySettings.SetFileExportFlag( vsp::FEA_NKEY_FILE_NAME, true );
+        }
+    }
+
+    FeaMeshMgr.addOutputText( "CLEAR_TERMINAL" );
+    FeaMeshMgr.MeshUnMeshed( feaassy->m_StructIDVec );
+    FeaMeshMgr.ExportAssemblyMesh( assembly_id );
+
+    ErrorMgr.NoError();
+}
+
 void SetXSecAlias( const string & id, const string & alias )
 {
     XSec* xs = FindXSec( id );

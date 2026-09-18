@@ -10517,6 +10517,152 @@ extern void ComputeFeaMesh( const std::string & geom_id, int fea_struct_ind, int
 extern void ComputeFeaMesh( const std::string & struct_id, int file_type );
 
 /*!
+    \ingroup FEAMesh
+*/
+/*!
+    Add an FEA Assembly and return its ID.
+*/
+extern std::string AddFeaAssembly();
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Delete an FEA Assembly by ID.
+    \param [in] assembly_id string FEA Assembly ID
+*/
+extern void DeleteFeaAssembly( const std::string & assembly_id );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Get the number of FEA Assemblies.
+*/
+extern int NumFeaAssemblies();
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Get a vector of all FEA Assembly IDs.
+*/
+extern std::vector< std::string > GetFeaAssemblyIDVec();
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Get the name of an FEA Assembly.
+    \param [in] assembly_id string FEA Assembly ID
+*/
+extern std::string GetFeaAssemblyName( const std::string & assembly_id );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Set the name of an FEA Assembly.
+    \param [in] assembly_id string FEA Assembly ID
+    \param [in] name string Name
+*/
+extern void SetFeaAssemblyName( const std::string & assembly_id, const std::string & name );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Add an FEA Structure to an FEA Assembly.
+    \param [in] assembly_id string FEA Assembly ID
+    \param [in] struct_id string FEA Structure ID
+*/
+extern void AddFeaStructToAssembly( const std::string & assembly_id, const std::string & struct_id );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Remove an FEA Structure from an FEA Assembly.
+    \param [in] assembly_id string FEA Assembly ID
+    \param [in] struct_id string FEA Structure ID
+*/
+extern void DelFeaStructFromAssembly( const std::string & assembly_id, const std::string & struct_id );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Get the Structure IDs currently in an FEA Assembly.
+    \param [in] assembly_id string FEA Assembly ID
+*/
+extern std::vector< std::string > GetFeaAssemblyStructIDVec( const std::string & assembly_id );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Set the export file name for an FEA Assembly output type.
+
+    For NASTRAN assembly export, pass a path ending in ".dat". The core derives the
+    companion ".bdf" path from that name (replacing/appending based on ".dat").
+    Passing a ".bdf" path produces a broken "*.bdf.bdf" name. Set FEA_NKEY_FILE_NAME
+    separately if a tag-key (.nkey) file is desired.
+
+    \sa SetFeaAssemblyMeshExportFlag, ComputeFeaAssemblyMesh, ExportFeaAssemblyMesh, FEA_EXPORT_TYPE
+    \param [in] assembly_id string FEA Assembly ID
+    \param [in] file_type int FEA output file type enum (i.e. FEA_EXPORT_TYPE)
+    \param [in] file_name string Name for the output file
+*/
+extern void SetFeaAssemblyFileName( const std::string & assembly_id, int file_type, const std::string & file_name );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Enable or disable an FEA Assembly export format flag without changing other flags.
+    Use with ExportFeaAssemblyMesh to write multiple formats in one pass
+    (e.g. NASTRAN + NKEY + MASS + STL).
+
+    \sa SetFeaAssemblyFileName, ExportFeaAssemblyMesh, ComputeFeaAssemblyMesh, FEA_EXPORT_TYPE
+    \param [in] assembly_id string FEA Assembly ID
+    \param [in] file_type int FEA output file type enum (i.e. FEA_EXPORT_TYPE)
+    \param [in] flag bool True to enable export for this type
+*/
+extern void SetFeaAssemblyMeshExportFlag( const std::string & assembly_id, int file_type, bool flag );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Mesh any still-unmeshed Structures in an FEA Assembly, then export every format
+    whose export flag is currently enabled. Does not clear or change export flags.
+
+    \sa SetFeaAssemblyMeshExportFlag, SetFeaAssemblyFileName, ComputeFeaAssemblyMesh
+    \param [in] assembly_id string FEA Assembly ID
+*/
+extern void ExportFeaAssemblyMesh( const std::string & assembly_id );
+
+/*!
+    \ingroup FEAMesh
+*/
+/*!
+    Convenience: mesh unmeshed Assembly Structures and export one format.
+
+    Clears all assembly export flags, enables file_type, then meshes and exports.
+    If file_type is FEA_NASTRAN_FILE_NAME, FEA_NKEY_FILE_NAME is also enabled so a
+    companion .nkey is written when its file name is set (GUI-like NASTRAN behavior).
+
+    For NASTRAN, set FEA_NASTRAN_FILE_NAME to a path ending in ".dat" (core derives ".bdf").
+    To export several formats without remeshing repeatedly, set flags with
+    SetFeaAssemblyMeshExportFlag and call ExportFeaAssemblyMesh instead.
+
+    \sa SetFeaAssemblyFileName, SetFeaAssemblyMeshExportFlag, ExportFeaAssemblyMesh, FEA_EXPORT_TYPE
+    \param [in] assembly_id string FEA Assembly ID
+    \param [in] file_type int FEA output file type enum (i.e. FEA_EXPORT_TYPE)
+*/
+extern void ComputeFeaAssemblyMesh( const std::string & assembly_id, int file_type );
+
+/*!
     \ingroup XSec
 */
 /*!
