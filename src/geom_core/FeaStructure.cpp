@@ -4242,155 +4242,197 @@ void FeaPartTrim::SetDrawObjHighlight( bool highlight )
     }
 }
 
+// After MergeCoplanarParts, a cross-symmetry plane (e.g. XY tray floor) may be a single
+// FeaSymmIndex=-1 surface while ribs/webs still have one copy per symmetry side. Trim
+// groups are still emitted per symmetry index; a size-1 surface broadcasts into every
+// group when FeaSymmIndex < 0, or only into its own side when FeaSymmIndex >= 0.
+static int FeaTrimSurfIndexForSymm( vector < VspSurf > & surfs, int isymm, int nsymm )
+{
+    if ( surfs.empty() || nsymm <= 0 )
+    {
+        return -1;
+    }
+
+    if ( (int) surfs.size() == nsymm )
+    {
+        return isymm;
+    }
+
+    if ( surfs.size() == 1 )
+    {
+        int si = surfs[0].GetFeaSymmIndex();
+        if ( si < 0 || si == isymm )
+        {
+            return 0;
+        }
+        return -1;
+    }
+
+    return -1;
+}
+
+static bool FeaTrimPartsSymmCompatible( const vector < string > & part_ids, int & nsymm_out )
+{
+    nsymm_out = 0;
+    for ( unsigned int ipart = 0; ipart < part_ids.size(); ipart++ )
+    {
+        FeaPart *parent_part = StructureMgr.GetFeaPart( part_ids[ ipart ] );
+        if ( !parent_part )
+        {
+            continue;
+        }
+
+        int n = (int) parent_part->GetFeaPartSurfVec().size();
+        if ( n > nsymm_out )
+        {
+            nsymm_out = n;
+        }
+    }
+
+    if ( nsymm_out <= 0 )
+    {
+        return false;
+    }
+
+    for ( unsigned int ipart = 0; ipart < part_ids.size(); ipart++ )
+    {
+        FeaPart *parent_part = StructureMgr.GetFeaPart( part_ids[ ipart ] );
+        if ( !parent_part )
+        {
+            continue;
+        }
+
+        int n = (int) parent_part->GetFeaPartSurfVec().size();
+        if ( n == 0 )
+        {
+            continue;
+        }
+
+        // Compatible: full per-side copies, or a single surface (merged -1 or one-sided).
+        if ( n != nsymm_out && n != 1 )
+        {
+            printf( "Error, parts used by FEA Trim do not have the same number of symmetrical copies\n" );
+            return false;
+        }
+    }
+
+    return true;
+}
+
 int FeaPartTrim::CountTrimPlanes()
 {
-    // Determine number of symmetrical copies.
-    int nsymm = -1;
-    for ( unsigned int ipart = 0; ipart < m_TrimFeaPartIDVec.size(); ipart++ )
+    int nsymm = 0;
+    if ( !FeaTrimPartsSymmCompatible( m_TrimFeaPartIDVec, nsymm ) )
     {
-        FeaPart *parent_part = StructureMgr.GetFeaPart( m_TrimFeaPartIDVec[ ipart ] );
-
-        if ( parent_part )
-        {
-            vector < VspSurf > parent_surf_vec = parent_part->GetFeaPartSurfVec();
-
-            if ( nsymm < 0 )
-            {
-                nsymm = parent_surf_vec.size();
-            }
-            else
-            {
-                if ( nsymm != parent_surf_vec.size() )
-                {
-                    printf( "Error, parts used by FEA Trim do not have the same number of symmetrical copies\n" );
-                }
-            }
-        }
+        return 0;
     }
     return nsymm;
 }
 
 void FeaPartTrim::FetchTrimPlanes( vector < vector < vec3d > > &pt, vector < vector < vec3d > > &norm, vector < vector < VspSurf > > &surf, const double & scale )
 {
-    // This nested loop is most naturally accessed with ipart as the outer loop.  However, going forward we will
-    // need pt and norm set up with ipart as the inner loop.  First we loop through to check that the referenced
-    // parts all have the same symmetry (which determines the outer loop size).
+    // Trim groups are indexed by symmetry copy. Referenced parts usually share that count,
+    // but a merged coplanar L/R part (FeaSymmIndex=-1, one surface) is included in every group.
 
-    // Determine number of symmetrical copies.
-    int nsymm = -1;
-    bool samesize = true;
-    for ( unsigned int ipart = 0; ipart < m_TrimFeaPartIDVec.size(); ipart++ )
+    int nsymm = 0;
+    if ( !FeaTrimPartsSymmCompatible( m_TrimFeaPartIDVec, nsymm ) || nsymm <= 0 )
     {
-        FeaPart *parent_part = StructureMgr.GetFeaPart( m_TrimFeaPartIDVec[ ipart ] );
+        return;
+    }
 
-        if ( parent_part )
+    pt.resize( nsymm );
+    norm.resize( nsymm );
+    surf.resize( nsymm );
+
+    int npart = m_TrimFeaPartIDVec.size();
+
+    for ( size_t isymm = 0; isymm < nsymm; isymm++ )
+    {
+        int nplanar = 0;
+        int nsurf = 0;
+        for ( unsigned int ipart = 0; ipart < npart; ipart++ )
         {
-            vector < VspSurf > parent_surf_vec = parent_part->GetFeaPartSurfVec();
+            FeaPart *parent_part = StructureMgr.GetFeaPart( m_TrimFeaPartIDVec[ ipart ] );
 
-            if ( nsymm < 0 )
+            if ( parent_part )
             {
-                nsymm = parent_surf_vec.size();
-            }
-            else
-            {
-                if ( nsymm != parent_surf_vec.size() )
+                vector < VspSurf > parent_surf_vec = parent_part->GetFeaPartSurfVec();
+                if ( FeaTrimSurfIndexForSymm( parent_surf_vec, (int) isymm, nsymm ) < 0 )
                 {
-                    printf( "Error, parts used by FEA Trim do not have the same number of symmetrical copies\n" );
-                    samesize = false;
+                    continue;
+                }
+
+                if ( parent_part->GetType() != vsp::FEA_DOME &&
+                     parent_part->GetType() != vsp::FEA_FIX_POINT &&
+                     parent_part->GetType() != vsp::FEA_RIB_ARRAY &&
+                     parent_part->GetType() != vsp::FEA_SLICE_ARRAY &&
+                     parent_part->GetType() != vsp::FEA_POLY_SPAR &&
+                     parent_part->GetType() != vsp::FEA_SKIN )
+                {
+                    nplanar++;
+                }
+                else if ( parent_part->GetType() == vsp::FEA_POLY_SPAR ||
+                          parent_part->GetType() == vsp::FEA_DOME )
+                {
+                    nsurf++;
                 }
             }
         }
-    }
 
-    if ( samesize && nsymm > 0 )
-    {
-        pt.resize( nsymm );
-        norm.resize( nsymm );
-        surf.resize( nsymm );
+        pt[isymm].resize( nplanar );
+        norm[isymm].resize( nplanar );
+        surf[isymm].resize( nsurf );
 
-        int npart = m_TrimFeaPartIDVec.size();
-
-        for ( size_t isymm = 0; isymm < nsymm; isymm++ )
+        int iplanar = 0;
+        int isurf = 0;
+        for ( unsigned int ipart = 0; ipart < npart; ipart++ )
         {
+            FeaPart *parent_part = StructureMgr.GetFeaPart( m_TrimFeaPartIDVec[ ipart ] );
 
-            int nplanar = 0;
-            int nsurf = 0;
-            for ( unsigned int ipart = 0; ipart < npart; ipart++ )
+            if ( parent_part )
             {
-                FeaPart *parent_part = StructureMgr.GetFeaPart( m_TrimFeaPartIDVec[ ipart ] );
-
-                if ( parent_part )
+                vector < VspSurf > parent_surf_vec = parent_part->GetFeaPartSurfVec();
+                int isurf_idx = FeaTrimSurfIndexForSymm( parent_surf_vec, (int) isymm, nsymm );
+                if ( isurf_idx < 0 )
                 {
-                    if ( parent_part->GetType() != vsp::FEA_DOME &&
-                         parent_part->GetType() != vsp::FEA_FIX_POINT &&
-                         parent_part->GetType() != vsp::FEA_RIB_ARRAY &&
-                         parent_part->GetType() != vsp::FEA_SLICE_ARRAY &&
-                         parent_part->GetType() != vsp::FEA_POLY_SPAR &&
-                         parent_part->GetType() != vsp::FEA_SKIN )
-                    {
-                        nplanar++;
-                    }
-                    else if ( parent_part->GetType() == vsp::FEA_POLY_SPAR ||
-                              parent_part->GetType() == vsp::FEA_DOME )
-                    {
-                        nsurf++;
-                    }
+                    continue;
                 }
-            }
 
-            pt[isymm].resize( nplanar );
-            norm[isymm].resize( nplanar );
-            surf[isymm].resize( nsurf );
-
-            int iplanar = 0;
-            int isurf = 0;
-            for ( unsigned int ipart = 0; ipart < npart; ipart++ )
-            {
-                FeaPart *parent_part = StructureMgr.GetFeaPart( m_TrimFeaPartIDVec[ ipart ] );
-
-                if ( parent_part )
+                if ( parent_part->GetType() != vsp::FEA_DOME &&
+                     parent_part->GetType() != vsp::FEA_FIX_POINT &&
+                     parent_part->GetType() != vsp::FEA_RIB_ARRAY &&
+                     parent_part->GetType() != vsp::FEA_SLICE_ARRAY &&
+                     parent_part->GetType() != vsp::FEA_POLY_SPAR &&
+                     parent_part->GetType() != vsp::FEA_SKIN )
                 {
-                    if ( parent_part->GetType() != vsp::FEA_DOME &&
-                         parent_part->GetType() != vsp::FEA_FIX_POINT &&
-                         parent_part->GetType() != vsp::FEA_RIB_ARRAY &&
-                         parent_part->GetType() != vsp::FEA_SLICE_ARRAY &&
-                         parent_part->GetType() != vsp::FEA_POLY_SPAR &&
-                         parent_part->GetType() != vsp::FEA_SKIN )
+                    const VspSurf &s = parent_surf_vec[isurf_idx];
+
+                    vec3d cen = s.CompPnt01( 0.5, 0.5 );
+                    vec3d dir = s.CompNorm01( 0.5, 0.5 );
+
+                    if ( m_FlipFlagVec[ipart]->Get() )
                     {
-
-                        vector < VspSurf > parent_surf_vec = parent_part->GetFeaPartSurfVec();
-
-                        const VspSurf &s = parent_surf_vec[isymm];
-
-                        vec3d cen = s.CompPnt01( 0.5, 0.5 );
-                        vec3d dir = s.CompNorm01( 0.5, 0.5 );
-
-                        if ( m_FlipFlagVec[ipart]->Get() )
-                        {
-                            dir = -1.0 * dir;
-                        }
-
-                        pt[isymm][iplanar] = cen * scale;
-                        norm[isymm][iplanar] = dir;
-                        iplanar++;
+                        dir = -1.0 * dir;
                     }
-                    else if ( parent_part->GetType() == vsp::FEA_POLY_SPAR ||
-                              parent_part->GetType() == vsp::FEA_DOME )
+
+                    pt[isymm][iplanar] = cen * scale;
+                    norm[isymm][iplanar] = dir;
+                    iplanar++;
+                }
+                else if ( parent_part->GetType() == vsp::FEA_POLY_SPAR ||
+                          parent_part->GetType() == vsp::FEA_DOME )
+                {
+                    VspSurf s = parent_surf_vec[isurf_idx];
+                    s.Scale( scale );
+
+                    if ( m_FlipFlagVec[ipart]->Get() )
                     {
-                        vector < VspSurf > parent_surf_vec = parent_part->GetFeaPartSurfVec();
-
-                        VspSurf s = parent_surf_vec[isymm];
-                        s.Scale( scale );
-
-                        if ( m_FlipFlagVec[ipart]->Get() )
-                        {
-                            s.FlipNormal();
-                        }
-
-                        surf[isymm][isurf] = s;
-
-                        isurf++;
+                        s.FlipNormal();
                     }
+
+                    surf[isymm][isurf] = s;
+
+                    isurf++;
                 }
             }
         }
