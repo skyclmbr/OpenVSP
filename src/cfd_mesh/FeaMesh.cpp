@@ -1114,6 +1114,8 @@ void FeaMesh::WriteNASTRAN( FILE *dat_fp, FILE *bdf_header_fp, FILE *bdf_fp, FIL
         fprintf( bdf_header_fp, "    LABEL = TEMPSUB\n" );
         fprintf( bdf_header_fp, "    LOAD = 1\n" );
         fprintf( bdf_header_fp, "BEGIN BULK\n" );
+        // Request binary OP2 output for post-processors (Mystran, etc.).
+        fprintf( bdf_header_fp, "PARAM,POST,-1\n" );
 
 
         int set_cnt = 1;
