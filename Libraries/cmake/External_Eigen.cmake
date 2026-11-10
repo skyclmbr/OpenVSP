@@ -6,6 +6,14 @@ ExternalProject_Add( EIGEN
 	CMAKE_ARGS
 		-DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
 		-DCMAKE_BUILD_TYPE=Release
+		# Eigen 5 defaults these ON as a top-level project; MSVC/Ninja then tries to
+		# build Fortran BLAS/LAPACK shared libs and fails (LNK1181 eigen_blas.lib).
+		-DEIGEN_BUILD_BLAS=OFF
+		-DEIGEN_BUILD_LAPACK=OFF
+		-DEIGEN_BUILD_TESTING=OFF
+		-DBUILD_TESTING=OFF
+		-DEIGEN_BUILD_DOC=OFF
+		-DEIGEN_BUILD_DEMOS=OFF
 )
 ExternalProject_Get_Property( EIGEN INSTALL_DIR )
 SET( EIGEN_INSTALL_DIR ${INSTALL_DIR} )

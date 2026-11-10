@@ -1,0 +1,36 @@
+From d7cf161f7d258a1f09df56362c047d913ea2e478 Mon Sep 17 00:00:00 2001
+From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 10:13:14 -0800
+Subject: [PATCH 2/2] fix(win): disable Eigen 5 BLAS/LAPACK build on MSVC
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Eigen 5 enables BLAS/LAPACK when configured as a top-level ExternalProject,
+which fails under MSVC/Ninja (missing eigen_blas.lib). OpenVSP only needs
+headers — turn those options off.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+diff --git a/Libraries/cmake/External_Eigen.cmake b/Libraries/cmake/External_Eigen.cmake
+index aa39294b3..949fb16e2 100644
+--- a/Libraries/cmake/External_Eigen.cmake
++++ b/Libraries/cmake/External_Eigen.cmake
+@@ -6,6 +6,14 @@ ExternalProject_Add( EIGEN
+ 	CMAKE_ARGS
+ 		-DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+ 		-DCMAKE_BUILD_TYPE=Release
++		# Eigen 5 defaults these ON as a top-level project; MSVC/Ninja then tries to
++		# build Fortran BLAS/LAPACK shared libs and fails (LNK1181 eigen_blas.lib).
++		-DEIGEN_BUILD_BLAS=OFF
++		-DEIGEN_BUILD_LAPACK=OFF
++		-DEIGEN_BUILD_TESTING=OFF
++		-DBUILD_TESTING=OFF
++		-DEIGEN_BUILD_DOC=OFF
++		-DEIGEN_BUILD_DEMOS=OFF
+ )
+ ExternalProject_Get_Property( EIGEN INSTALL_DIR )
+ SET( EIGEN_INSTALL_DIR ${INSTALL_DIR} )
+-- 
+2.54.0.windows.1
+
