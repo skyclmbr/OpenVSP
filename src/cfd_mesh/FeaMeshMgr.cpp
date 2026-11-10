@@ -180,8 +180,21 @@ void FeaMeshMgrSingleton::LoadSkins()
 
             int skin_index = fea_struct->GetFeaPartIndex( prt );
 
+            // Feature lines that lie on planar FEA parts are suppressed so they are not
+            // re-split (the part already cuts there). If a planar part sits near the skin
+            // (e.g. an XY tray floor close to the lower surface), over-suppression can
+            // leave only degenerate patches and FetchXFerSurf returns nothing — which
+            // aborts meshing with "No Surfaces". Retry with full feature splits.
             skin->FetchFeaXFerSurf( skinxfersurfs, 0, fea_struct->GetUSuppress(), fea_struct->GetWSuppress(),
                                     GetSettingsPtr()->m_SplitJoinSurfsFlag );
+            if ( skinxfersurfs.empty() &&
+                 ( !fea_struct->GetUSuppress().empty() || !fea_struct->GetWSuppress().empty() ) )
+            {
+                addOutputText( "Warning: suppressed skin feature splits produced no valid patches; retrying without suppressions\n" );
+                vector < double > nosuppress;
+                skin->FetchFeaXFerSurf( skinxfersurfs, 0, nosuppress, nosuppress,
+                                        GetSettingsPtr()->m_SplitJoinSurfsFlag );
+            }
 
             // Load Skin XFerSurf to m_SurfVec
             LoadSurfs( skinxfersurfs, GetMeshPtr()->m_LenScale );
