@@ -1,7 +1,7 @@
-From 7042c2f9613091acb14bb68a10a80e550aec0715 Mon Sep 17 00:00:00 2001
+From b4dd1ec40184b03f868f4651d1e9e8d7ae4f292f Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 14:27:39 -0700
-Subject: [PATCH 15/23] chore(vr): align z-lock internal naming
+Subject: [PATCH 15/26] chore(vr): align z-lock internal naming
 
 Rename remaining y-lock state variables to z-lock naming to match current axis semantics and reduce maintenance confusion.
 

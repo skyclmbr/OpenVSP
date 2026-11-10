@@ -1,21 +1,23 @@
-From 7e4f9f3927c1e42c87116f815aa350a1da6373fe Mon Sep 17 00:00:00 2001
+From e232e4e472bf04574d1004e5e882cb5fda8f33db Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Thu, 30 Apr 2026 22:04:44 -0700
-Subject: [PATCH 03/23] feat(vr): Phase 1 OpenXR stereo demo (triangle)
+Subject: [PATCH 03/26] feat(vr): Phase 1 OpenXR stereo demo (triangle)
 
 Add VRManager with Win32 OpenGL session, stage/view spaces, stereo swapchains, and per-eye triangle render. Fetch Khronos OpenXR-SDK by default; optional FindOpenXR via -DVSP_VR_SYSTEM_OPENXR=ON. Scope MSVC /MP to C/CXX only so nested OpenXR loader.rc builds. RunVRMode creates a hidden GL 3.3 context and drives the XR frame loop.
 
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 95cc3356a..6c4147b43 100644
+index e299284dd..401cf6e29 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -27,7 +27,9 @@ IF( VSP_LIBRARY_PATH )
- ENDIF( VSP_LIBRARY_PATH )
- 
- IF(WIN32)
--    ADD_DEFINITIONS(/D _CRT_SECURE_NO_WARNINGS /D "NOMINMAX" /MP )
-+    # /MP must not go through ADD_DEFINITIONS — it breaks MSVC rc.exe in nested projects (e.g. OpenXR loader).
-+    ADD_DEFINITIONS(/D _CRT_SECURE_NO_WARNINGS /D "NOMINMAX" )
+@@ -34,7 +34,11 @@ IF(WIN32)
+     # #include is a no-op.  On the command line it is in force before the first token of
+     # every unit, which is the only place the guarantee holds.  Same species as NOMINMAX
+     # beside it.
+-    ADD_DEFINITIONS(/D _CRT_SECURE_NO_WARNINGS /D "NOMINMAX" /D _USE_MATH_DEFINES /MP )
++    #
++    # /MP must not go through ADD_DEFINITIONS — it breaks MSVC rc.exe in nested projects
++    # (e.g. OpenXR loader).
++    ADD_DEFINITIONS(/D _CRT_SECURE_NO_WARNINGS /D "NOMINMAX" /D _USE_MATH_DEFINES )
 +    add_compile_options( $<$<COMPILE_LANGUAGE:CXX>:/MP> $<$<COMPILE_LANGUAGE:C>:/MP> )
  ENDIF(WIN32)
  

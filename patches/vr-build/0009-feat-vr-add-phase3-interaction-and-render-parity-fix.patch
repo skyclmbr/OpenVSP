@@ -1,7 +1,7 @@
-From c35ecd61258ad47608294be0498ea4f9eec130a2 Mon Sep 17 00:00:00 2001
+From 58409a404b245da0c4617ef0300a37f0d752ed1f Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 13:02:33 -0700
-Subject: [PATCH 09/23] feat(vr): add phase3 interaction and render parity
+Subject: [PATCH 09/26] feat(vr): add phase3 interaction and render parity
  fixes
 
 Add controller grab interactions with filtering, improve VR shading with VSP normals and depth occlusion, and tighten draw-style handling so mirrored geometry and shaded visibility behave consistently in-headset.

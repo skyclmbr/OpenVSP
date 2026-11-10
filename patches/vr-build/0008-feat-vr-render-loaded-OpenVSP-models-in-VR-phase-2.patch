@@ -1,7 +1,7 @@
-From 1ef72a48a77f5fc842be4ec28c42b7aec97e4acd Mon Sep 17 00:00:00 2001
+From 9b538c2058c525508bfa2661baaa0276f9ef54ec Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 10:46:31 -0700
-Subject: [PATCH 08/23] feat(vr): render loaded OpenVSP models in VR phase 2
+Subject: [PATCH 08/26] feat(vr): render loaded OpenVSP models in VR phase 2
 
 Wire the VR runtime to load .vsp3 files and draw sampled OpenVSP geometry in stereo with room-scale placement, fallback bounds handling, and symmetry-aware surf sampling so mirrored components appear in-headset.
 

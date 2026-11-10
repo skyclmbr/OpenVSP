@@ -1,7 +1,7 @@
-From cb783a82213667d8787681b66d10ba98d9400e75 Mon Sep 17 00:00:00 2001
+From 162f14b3cc9a742175a8074ca0731a07781eb8b1 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 14:27:08 -0700
-Subject: [PATCH 14/23] feat(vr): add floor recalibration on right long-press
+Subject: [PATCH 14/26] feat(vr): add floor recalibration on right long-press
 
 Map right-thumbstick long press to floor recalibration by sampling HMD pose in stage space and adjusting vertical anchor offset, while keeping short press for view preset cycling.
 

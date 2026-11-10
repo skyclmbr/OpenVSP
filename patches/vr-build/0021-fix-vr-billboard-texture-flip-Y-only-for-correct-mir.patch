@@ -1,7 +1,7 @@
-From 692fe9f5b1f7b1c806f407ad124943ce0d28ccba Mon Sep 17 00:00:00 2001
+From b6a06bf24058e50d8f5bb22416b8d53b1ce67406 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 16:16:51 -0700
-Subject: [PATCH 21/23] fix(vr): billboard texture flip Y only for correct
+Subject: [PATCH 21/26] fix(vr): billboard texture flip Y only for correct
  mirroring
 
 Sample ImGui FBO with vertical flip only so panel text stays upright without left-right reversal.

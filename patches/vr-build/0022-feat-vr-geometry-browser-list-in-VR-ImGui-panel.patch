@@ -1,7 +1,7 @@
-From 2c238d0987fd0281207df6d01dfe7df6d1179a1e Mon Sep 17 00:00:00 2001
+From afd84581cffa1051386e9944a02cfd233605699b Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Sun, 3 May 2026 21:57:50 -0700
-Subject: [PATCH 22/23] feat(vr): geometry browser list in VR ImGui panel
+Subject: [PATCH 22/26] feat(vr): geometry browser list in VR ImGui panel
 
 Populate the overlay with vsp::FindGeoms(), show type, display name, and id per row with parent-depth indent, selectable row and footer summary. Enlarge off-screen panel to 720x540.
 

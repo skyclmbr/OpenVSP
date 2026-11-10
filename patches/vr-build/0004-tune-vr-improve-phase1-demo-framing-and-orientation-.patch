@@ -1,7 +1,7 @@
-From fcd001d28d962e5c62680492dc91de1e8d2071ba Mon Sep 17 00:00:00 2001
+From 1d0741b70100878237b214aecca966b1470d8939 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Thu, 30 Apr 2026 22:58:05 -0700
-Subject: [PATCH 04/23] tune(vr): improve phase1 demo framing and orientation
+Subject: [PATCH 04/26] tune(vr): improve phase1 demo framing and orientation
  cues
 
 Made-with: Cursor

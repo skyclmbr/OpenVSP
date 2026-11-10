@@ -1,7 +1,7 @@
-From 0a9fa41907d64eb757e4d42ee57649f38cef24bb Mon Sep 17 00:00:00 2001
+From 18b8e8d810a665a62a3d9374f525e61cf0653fbb Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 14:48:59 -0700
-Subject: [PATCH 19/23] feat(vr): Phase 4 stub - ImGui to texture and stage
+Subject: [PATCH 19/26] feat(vr): Phase 4 stub - ImGui to texture and stage
  billboard
 
 Add Dear ImGui via FetchContent, render a minimal window to an FBO, and draw it as a world-space quad in the stereo pass. VR continues if overlay init fails.

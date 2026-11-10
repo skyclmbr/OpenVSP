@@ -1,7 +1,7 @@
-From dc8182210e68c51b2ede123580741bd2bacce0f6 Mon Sep 17 00:00:00 2001
+From a28cd9e54f88c8a45746317d435a30b29cf8e780 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Thu, 30 Apr 2026 23:07:28 -0700
-Subject: [PATCH 06/23] fix(vr): require focused tracked views and settle after
+Subject: [PATCH 06/26] fix(vr): require focused tracked views and settle after
  remount
 
 Made-with: Cursor

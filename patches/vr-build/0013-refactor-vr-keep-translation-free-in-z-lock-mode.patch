@@ -1,7 +1,7 @@
-From 92245a4e7a1cb041cc296c6d9be9cc8de8fb9dd2 Mon Sep 17 00:00:00 2001
+From 518ef3efe98f5216dcca39deecc8ade2911ef043 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 14:18:19 -0700
-Subject: [PATCH 13/23] refactor(vr): keep translation free in z-lock mode
+Subject: [PATCH 13/26] refactor(vr): keep translation free in z-lock mode
 
 Adjust z-lock interaction to constrain rotation only (yaw about world up) while preserving full 3D translation for single- and dual-grab manipulations.
 

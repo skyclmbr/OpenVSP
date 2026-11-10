@@ -1,7 +1,7 @@
-From db37c93548cac2724c066b9d7107ca9e1443ff9c Mon Sep 17 00:00:00 2001
+From 4f145aec4e371081e19c2e70d2f6fa456fdc14e2 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 14:02:40 -0700
-Subject: [PATCH 12/23] feat(vr): add right-thumbstick zoom and view presets
+Subject: [PATCH 12/26] feat(vr): add right-thumbstick zoom and view presets
 
 Bind right thumbstick axis and click input so horizontal stick yaws about +Z, vertical stick zooms model scale, and short right-click cycles preset view orientations.
 

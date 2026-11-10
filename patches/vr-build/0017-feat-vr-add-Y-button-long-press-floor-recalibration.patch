@@ -1,7 +1,7 @@
-From 4996c4f801d069d2d87a13bf30d4635d493f2944 Mon Sep 17 00:00:00 2001
+From a3f429bed6001facc7dfec9028a388785ff6495b Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 14:35:20 -0700
-Subject: [PATCH 17/23] feat(vr): add Y-button long-press floor recalibration
+Subject: [PATCH 17/26] feat(vr): add Y-button long-press floor recalibration
 
 Implement a 2-second left Y-button hold action that triggers floor recalibration, matching the navigation spec while keeping existing thumbstick controls intact.
 

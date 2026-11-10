@@ -1,7 +1,7 @@
-From 37437c1c6d3033f82c38bfaa886f4670a02cdb22 Mon Sep 17 00:00:00 2001
+From 04f4fde8d19b488fa24d7d0b1991529a607f6acd Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Thu, 30 Apr 2026 23:04:10 -0700
-Subject: [PATCH 05/23] fix(vr): stabilize OpenXR resume after headset remount
+Subject: [PATCH 05/26] fix(vr): stabilize OpenXR resume after headset remount
 
 Made-with: Cursor
 

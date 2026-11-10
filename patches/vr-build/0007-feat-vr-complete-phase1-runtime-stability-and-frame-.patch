@@ -1,7 +1,7 @@
-From e25ebb30ce6bab8078eca7a4c8ac413fbb2489b7 Mon Sep 17 00:00:00 2001
+From 9b6dc2d949b0827b94f93a8524cb6a2486402122 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 10:00:54 -0700
-Subject: [PATCH 07/23] feat(vr): complete phase1 runtime stability and frame
+Subject: [PATCH 07/26] feat(vr): complete phase1 runtime stability and frame
  flow
 
 Finalize Phase 1 by aligning OpenXR frame pumping with a proven wait/begin/end flow, handling invalid view poses with empty-frame submission, and improving first-view placement so stereo demo content appears predictably. This stabilizes startup/resume behavior in Virtual Desktop while keeping runtime rendering active once the session is begun.

@@ -1,7 +1,7 @@
-From 1efe802ec9d930dcd5929191f85418c2f739c5c8 Mon Sep 17 00:00:00 2001
+From eae4c8d29bb0dbbe32266479402ee15a9ba934e2 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Wed, 1 Jul 2026 15:06:00 -0700
-Subject: [PATCH 23/23] chore(vr): add rebase/build/patch workflow for bryVR
+Subject: [PATCH 23/26] chore(vr): add rebase/build/patch workflow for bryVR
  branch
 
 Document VR branch layout (bry/win-cmake -> bryVR), scripts to rebase onto

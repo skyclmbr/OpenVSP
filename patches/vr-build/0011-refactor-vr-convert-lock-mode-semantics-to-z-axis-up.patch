@@ -1,7 +1,7 @@
-From f0027e122cfc88deaac47176e68376ae699d8abf Mon Sep 17 00:00:00 2001
+From 4a9b59575be8132bc79124eb2d79b2f8afbef6c2 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 14:01:29 -0700
-Subject: [PATCH 11/23] refactor(vr): convert lock mode semantics to z-axis up
+Subject: [PATCH 11/26] refactor(vr): convert lock mode semantics to z-axis up
 
 Rename y-lock behavior to z-lock and update constrained translation/rotation math so vertical locking and yaw operate about +Z in the z-up VR model space.
 

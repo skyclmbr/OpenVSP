@@ -1,7 +1,7 @@
-From 44dde34204425924f0c48c1b10f6d82983fc5d49 Mon Sep 17 00:00:00 2001
+From 70291f3a00e1c01392918e29db0c7c64695c63a7 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 14:34:12 -0700
-Subject: [PATCH 16/23] feat(vr): draw floor reference grid while z-lock is
+Subject: [PATCH 16/26] feat(vr): draw floor reference grid while z-lock is
  enabled
 
 Render a subtle stage-space floor grid and origin marker when z-lock is active to improve spatial orientation during walk-around inspection.

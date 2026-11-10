@@ -1,7 +1,7 @@
-From 633619bfcf28ad2ce3354d299136a031cf718080 Mon Sep 17 00:00:00 2001
+From f1daba98a56f83dedca80a50940723a59b871347 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Fri, 1 May 2026 16:14:38 -0700
-Subject: [PATCH 20/23] fix(vr): correct ImGui billboard texture orientation
+Subject: [PATCH 20/26] fix(vr): correct ImGui billboard texture orientation
 
 Flip both texture coordinates when sampling the off-screen ImGui FBO so panel text is not upside down or mirrored on the world-space quad.
 

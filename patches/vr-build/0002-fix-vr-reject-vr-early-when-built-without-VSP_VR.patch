@@ -1,15 +1,15 @@
-From 82a309db9ffc2100fd49f4d820fd0952c284438b Mon Sep 17 00:00:00 2001
+From e0f07edb2279bf972c38f3e255b6917ab7dc9155 Mon Sep 17 00:00:00 2001
 From: Bryan Sandoz <17123735+skyclmbr@users.noreply.github.com>
 Date: Thu, 30 Apr 2026 21:44:35 -0700
-Subject: [PATCH 02/23] fix(vr): reject --vr early when built without VSP_VR
+Subject: [PATCH 02/26] fix(vr): reject --vr early when built without VSP_VR
 
 Made-with: Cursor
 
 diff --git a/src/vsp/main.cpp b/src/vsp/main.cpp
-index 3a73c8805..7e4ae0dd3 100644
+index 22edd3259..fc1ee0905 100644
 --- a/src/vsp/main.cpp
 +++ b/src/vsp/main.cpp
-@@ -219,6 +219,15 @@ int main( int argc, char** argv )
+@@ -224,6 +224,15 @@ int main( int argc, char** argv )
      {
          return RunVRMode( argc, argv );
      }
